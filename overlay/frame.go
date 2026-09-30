@@ -26,6 +26,8 @@ func writeFrame(w io.Writer, typ byte, payload []byte) error {
 	binary.BigEndian.PutUint32(buf[:4], uint32(len(payload)+1))
 	buf[4] = typ
 	copy(buf[5:], payload)
+	// One Write keeps the prefix with the packet. The relay WebSocket
+	// treats each Write as a message, so a split header corrupts IP packets.
 	_, err := w.Write(buf)
 	return err
 }

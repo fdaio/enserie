@@ -220,15 +220,19 @@ func (n *Node) acceptRelay(ctx context.Context, relayURL, ticket string) {
 }
 
 func (n *Node) dialLoop(ctx context.Context) {
-	// One side dials. The other waits for inbound. Dual Dial on the same
-	// relay races the Accept slot and can leave Close blocked on a splice.
+	// The node with the greater id dials first. The other waits briefly so
+	// Offer can register, then dials if still unconnected.
 	initiator := n.cfg.ID > n.cfg.Peer.ID
-	backoff := 200 * time.Millisecond
+	passiveUntil := time.Now()
+	if !initiator {
+		passiveUntil = time.Now().Add(500 * time.Millisecond)
+	}
+	backoff := 50 * time.Millisecond
 	for {
 		if ctx.Err() != nil {
 			return
 		}
-		if n.hasPeer() || !initiator {
+		if n.hasPeer() || time.Now().Before(passiveUntil) {
 			select {
 			case <-ctx.Done():
 				return
@@ -243,7 +247,7 @@ func (n *Node) dialLoop(ctx context.Context) {
 				return
 			case <-time.After(backoff):
 			}
-			if backoff < 3*time.Second {
+			if backoff < time.Second {
 				backoff *= 2
 			}
 			continue

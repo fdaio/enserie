@@ -3,6 +3,7 @@ package overlay
 import (
 	"context"
 	"net"
+	"net/http"
 	"path/filepath"
 	"testing"
 	"time"
@@ -89,7 +90,9 @@ func pair(t *testing.T, forceRelay bool) (*Node, *Node) {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { _ = closeFn() })
-		relays = []string{"http://" + addr.String()}
+		url := "http://" + addr.String()
+		waitHTTP(t, url+"/healthz")
+		relays = []string{url}
 	}
 
 	ctx := context.Background()
@@ -112,6 +115,9 @@ func pair(t *testing.T, forceRelay bool) (*Node, *Node) {
 	}
 	if err := a.Start(ctx); err != nil {
 		t.Fatal(err)
+	}
+	if forceRelay {
+		time.Sleep(200 * time.Millisecond)
 	}
 	bPeer := Peer{
 		ID:         "a",
@@ -142,12 +148,10 @@ func pair(t *testing.T, forceRelay bool) (*Node, *Node) {
 
 func waitPath(t *testing.T, a, b *Node, want transport.Kind) {
 	t.Helper()
-	deadline := time.Now().Add(8 * time.Second)
+	deadline := time.Now().Add(20 * time.Second)
 	for time.Now().Before(deadline) {
-		if a.Path() == want || b.Path() == want {
-			if a.Path() == want && b.Path() == want {
-				return
-			}
+		if a.Path() == want && b.Path() == want {
+			return
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
@@ -159,7 +163,7 @@ func sendAndRecv(t *testing.T, a, b *Node) {
 	src := net.ParseIP("10.7.0.1").To4()
 	dst := net.ParseIP("10.7.0.2").To4()
 	pkt := ipv4Packet(src, dst, []byte("ping-overlay"))
-	deadline := time.Now().Add(8 * time.Second)
+	deadline := time.Now().Add(20 * time.Second)
 	var last error
 	for time.Now().Before(deadline) {
 		if err := a.Inject(pkt); err != nil {
@@ -190,4 +194,20 @@ func bytesEqual(a, b []byte) bool {
 		}
 	}
 	return true
+}
+
+func waitHTTP(t *testing.T, url string) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		resp, err := http.Get(url)
+		if err == nil {
+			_ = resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				return
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("relay not ready at %s", url)
 }

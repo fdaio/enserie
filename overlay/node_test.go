@@ -28,6 +28,101 @@ func TestOverlayRelayForwardsPacket(t *testing.T) {
 	sendAndRecv(t, a, b)
 }
 
+func TestOverlayInviteAcceptQUIC(t *testing.T) {
+	a, z := invitePair(t, false)
+	defer a.Close()
+	defer z.Close()
+	waitPath(t, a, z, transport.KindQUIC)
+	sendAndRecv(t, a, z)
+}
+
+func TestOverlayInviteAcceptRelay(t *testing.T) {
+	a, z := invitePair(t, true)
+	defer a.Close()
+	defer z.Close()
+	waitPath(t, a, z, transport.KindRelay)
+	sendAndRecv(t, a, z)
+}
+
+func invitePair(t *testing.T, forceRelay bool) (*Node, *Node) {
+	t.Helper()
+	dir := t.TempDir()
+	ca, err := transport.EnsureServerCert(filepath.Join(dir, "a.crt"), filepath.Join(dir, "a.key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cz, err := transport.EnsureServerCert(filepath.Join(dir, "z.crt"), filepath.Join(dir, "z.key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fpA, err := transport.CertFingerprint(ca)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var relays []string
+	if forceRelay {
+		addr, closeFn, err := relay.ListenAndServe("127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = closeFn() })
+		url := "http://" + addr.String()
+		waitHTTP(t, url+"/healthz")
+		relays = []string{url}
+	}
+	secret := "invite-secret"
+	ctx := context.Background()
+	a, err := New(Config{
+		ID:     "a",
+		CIDR:   "10.7.0.1/30",
+		Cert:   ca,
+		Listen: "127.0.0.1:0",
+		Relays: relays,
+		Peer: Peer{
+			IP: net.ParseIP("10.7.0.2"),
+		},
+		Device: newMemDevice(),
+		Secret: secret,
+		Invite: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if forceRelay {
+		time.Sleep(200 * time.Millisecond)
+	}
+	zPeer := Peer{
+		ID:         "a",
+		IP:         net.ParseIP("10.7.0.1"),
+		CertFP:     fpA,
+		ForceRelay: forceRelay,
+	}
+	if !forceRelay {
+		zPeer.Candidates = []string{a.ListenAddr()}
+	}
+	z, err := New(Config{
+		ID:         "z",
+		CIDR:       "10.7.0.2/30",
+		Cert:       cz,
+		Listen:     "127.0.0.1:0",
+		Relays:     relays,
+		Peer:       zPeer,
+		Device:     newMemDevice(),
+		Secret:     secret,
+		AlwaysDial: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := z.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	return a, z
+}
+
 func TestOverlayRelayOffFailsWithoutCandidates(t *testing.T) {
 	dir := t.TempDir()
 	ca, err := transport.EnsureServerCert(filepath.Join(dir, "a.crt"), filepath.Join(dir, "a.key"))

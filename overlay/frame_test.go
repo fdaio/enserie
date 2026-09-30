@@ -46,15 +46,15 @@ func (w *writeCounter) Write(p []byte) (int, error) {
 
 func TestFrameHelloRoundTrip(t *testing.T) {
 	var buf bytes.Buffer
-	if err := writeHello(&buf, "alpha"); err != nil {
+	if err := writeHello(&buf, "alpha", "s3cret"); err != nil {
 		t.Fatal(err)
 	}
-	id, err := readHello(&buf)
+	id, secret, err := readHello(&buf)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if id != "alpha" {
-		t.Fatalf("got %q", id)
+	if id != "alpha" || secret != "s3cret" {
+		t.Fatalf("got id=%q secret=%q", id, secret)
 	}
 }
 

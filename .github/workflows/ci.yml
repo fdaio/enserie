@@ -28,7 +28,7 @@ jobs:
       - name: Build
         run: go build ./cmd/enserie ./cmd/enserie-relay
 
-  dist:
+  dist-linux:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -37,7 +37,7 @@ jobs:
           go-version-file: go.mod
           cache: true
       - name: Package
-        run: make dist
+        run: make dist-linux
       - name: Inspect packages
         run: |
           set -eu
@@ -49,5 +49,28 @@ jobs:
             echo "client deb must not contain enserie-relay" >&2
             exit 1
           fi
-          tar -tzf dist/enserie-darwin-amd64.tar.gz | grep -qx enserie
           tar -tzf dist/enserie-relay-linux-amd64.tar.gz | grep -qx enserie-relay
+          if ls dist/enserie-darwin-*.tar.gz >/dev/null 2>&1; then
+            echo "linux job must not emit darwin tarballs" >&2
+            exit 1
+          fi
+
+  dist-darwin:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Package
+        run: make dist-darwin
+      - name: Inspect packages
+        run: |
+          set -eu
+          tar -tzf dist/enserie-darwin-arm64.tar.gz | grep -qx enserie
+          tar -tzf dist/enserie-darwin-amd64.tar.gz | grep -qx enserie
+          tar -tzf dist/enserie-relay-darwin-arm64.tar.gz | grep -qx enserie-relay
+          codesign -dv dist/darwin-arm64/enserie 2>&1 | grep -qi adhoc
+          codesign -dv dist/darwin-amd64/enserie 2>&1 | grep -qi adhoc
+          dist/darwin-arm64/enserie --version

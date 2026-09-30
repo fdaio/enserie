@@ -1,6 +1,8 @@
 package main
 
 import (
+	"fmt"
+	"os"
 	"strings"
 	"testing"
 
@@ -25,5 +27,16 @@ func TestInviteCLITokenIsShellSafe(t *testing.T) {
 	}
 	if _, err := overlay.ParseInvite(tok); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestWrapStartOmitsNeedRootWhenRoot(t *testing.T) {
+	err := wrapStart(fmt.Errorf("TUNSETIFF: device or resource busy"))
+	s := err.Error()
+	if os.Geteuid() == 0 && strings.Contains(s, "need root") {
+		t.Fatalf("root must not see need root: %s", s)
+	}
+	if os.Geteuid() != 0 && !strings.Contains(s, "need root") {
+		t.Fatalf("non-root should see need root: %s", s)
 	}
 }

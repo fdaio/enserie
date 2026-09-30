@@ -96,7 +96,7 @@ func runInvite() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	if err := n.Start(ctx); err != nil {
-		return fmt.Errorf("tun/listen: %w (need root)", err)
+		return wrapStart(err)
 	}
 	defer n.Close()
 
@@ -166,7 +166,7 @@ func runAccept(token string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	if err := n.Start(ctx); err != nil {
-		return fmt.Errorf("tun/listen: %w (need root)", err)
+		return wrapStart(err)
 	}
 	defer n.Close()
 	fmt.Fprintf(os.Stderr, "ens: overlay %s  peer %s\n", n.LocalIP(), n.PeerIP())
@@ -207,4 +207,11 @@ func parseCIDR(cidr string) (net.IP, *net.IPNet, error) {
 		return nil, nil, fmt.Errorf("overlay requires IPv4, got %s", cidr)
 	}
 	return v4, n, nil
+}
+
+func wrapStart(err error) error {
+	if os.Geteuid() != 0 {
+		return fmt.Errorf("tun/listen: %w (need root)", err)
+	}
+	return fmt.Errorf("tun/listen: %w", err)
 }

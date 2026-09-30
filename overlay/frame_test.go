@@ -25,6 +25,25 @@ func TestParseCIDRRejectsTinyPrefix(t *testing.T) {
 	}
 }
 
+func TestWriteFrameSingleWrite(t *testing.T) {
+	var w writeCounter
+	if err := writeFrame(&w, typePacket, []byte("abc")); err != nil {
+		t.Fatal(err)
+	}
+	if w.n != 1 {
+		t.Fatalf("writes %d, want 1", w.n)
+	}
+}
+
+type writeCounter struct {
+	n int
+}
+
+func (w *writeCounter) Write(p []byte) (int, error) {
+	w.n++
+	return len(p), nil
+}
+
 func TestFrameHelloRoundTrip(t *testing.T) {
 	var buf bytes.Buffer
 	if err := writeHello(&buf, "alpha"); err != nil {

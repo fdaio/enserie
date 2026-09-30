@@ -22,15 +22,13 @@ func writeFrame(w io.Writer, typ byte, payload []byte) error {
 	if len(payload)+1 > maxFrame {
 		return fmt.Errorf("overlay frame too large")
 	}
-	var hdr [4]byte
-	binary.BigEndian.PutUint32(hdr[:], uint32(len(payload)+1))
-	if _, err := w.Write(hdr[:]); err != nil {
-		return err
-	}
-	if _, err := w.Write([]byte{typ}); err != nil {
-		return err
-	}
-	_, err := w.Write(payload)
+	buf := make([]byte, 5+len(payload))
+	binary.BigEndian.PutUint32(buf[:4], uint32(len(payload)+1))
+	buf[4] = typ
+	copy(buf[5:], payload)
+	// One Write keeps the prefix with the packet. The relay WebSocket
+	// treats each Write as a message, so a split header corrupts IP packets.
+	_, err := w.Write(buf)
 	return err
 }
 

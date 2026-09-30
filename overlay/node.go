@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"sync"
 	"time"
 
@@ -179,6 +180,10 @@ func (n *Node) cleanupDev() error {
 	return err
 }
 
+func (n *Node) logf(format string, args ...any) {
+	fmt.Fprintf(os.Stderr, "enserie "+n.cfg.ID+": "+format+"\n", args...)
+}
+
 func (n *Node) allowFP(fp string) bool {
 	return transport.NormalizeFP(fp) == transport.NormalizeFP(n.cfg.Peer.CertFP)
 }
@@ -209,10 +214,12 @@ func (n *Node) acceptLoop(ctx context.Context) {
 func (n *Node) acceptRelay(ctx context.Context, relayURL, ticket string) {
 	raw, err := relay.Accept(ctx, relayURL, ticket)
 	if err != nil {
+		n.logf("relay accept: %v", err)
 		return
 	}
 	secure, err := transport.ServerE2E(raw, transport.E2EServerConfig(n.cfg.Cert, n.allowFP))
 	if err != nil {
+		n.logf("relay server tls: %v", err)
 		_ = raw.Close()
 		return
 	}
@@ -220,19 +227,18 @@ func (n *Node) acceptRelay(ctx context.Context, relayURL, ticket string) {
 }
 
 func (n *Node) dialLoop(ctx context.Context) {
-	// The node with the greater id dials first. The other waits briefly so
-	// Offer can register, then dials if still unconnected.
-	initiator := n.cfg.ID > n.cfg.Peer.ID
-	passiveUntil := time.Now()
-	if !initiator {
-		passiveUntil = time.Now().Add(500 * time.Millisecond)
+	// Only one side dials. Simultaneous dials through the relay pick
+	// opposite splices and then each close the other's live path.
+	if n.cfg.ID <= n.cfg.Peer.ID {
+		<-ctx.Done()
+		return
 	}
 	backoff := 50 * time.Millisecond
 	for {
 		if ctx.Err() != nil {
 			return
 		}
-		if n.hasPeer() || time.Now().Before(passiveUntil) {
+		if n.hasPeer() {
 			select {
 			case <-ctx.Done():
 				return
@@ -273,11 +279,13 @@ func (n *Node) dialPeer(ctx context.Context) (net.Conn, transport.Kind, error) {
 		}
 		raw, err := relay.Dial(ctx, url, n.cfg.Peer.ID)
 		if err != nil {
+			n.logf("relay dial %s: %v", url, err)
 			errs = append(errs, err)
 			continue
 		}
 		secure, err := transport.ClientE2E(raw, transport.E2EClientConfig(n.cfg.Cert, n.cfg.Peer.CertFP))
 		if err != nil {
+			n.logf("relay client tls: %v", err)
 			_ = raw.Close()
 			errs = append(errs, err)
 			continue
@@ -294,19 +302,24 @@ func (n *Node) serveConn(ctx context.Context, c net.Conn, kind transport.Kind) {
 	defer c.Close()
 	_ = c.SetDeadline(time.Now().Add(15 * time.Second))
 	if err := writeHello(c, n.cfg.ID); err != nil {
+		n.logf("hello write: %v", err)
 		return
 	}
 	id, err := readHello(c)
 	_ = c.SetDeadline(time.Time{})
 	if err != nil {
+		n.logf("hello read: %v", err)
 		return
 	}
 	if id != n.cfg.Peer.ID {
+		n.logf("hello id %q != %q", id, n.cfg.Peer.ID)
 		return
 	}
 	if !n.installPeer(c, kind) {
+		n.logf("peer already connected, drop %s", kind)
 		return
 	}
+	n.logf("path %s", kind)
 	defer n.clearPeer(c)
 	for {
 		if ctx.Err() != nil {

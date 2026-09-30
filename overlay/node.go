@@ -32,6 +32,12 @@ type Config struct {
 	Relays []string
 	Peer   Peer
 	Device Device // nil opens a real TUN
+	Secret string // shared invite secret; empty skips the check
+	// Invite listens and offers. It does not dial. The first hello with
+	// a matching secret becomes the peer.
+	Invite bool
+	// AlwaysDial makes this node the dialer even when its id is smaller.
+	AlwaysDial bool
 }
 
 type Node struct {
@@ -51,8 +57,21 @@ func New(cfg Config) (*Node, error) {
 	if cfg.ID == "" {
 		return nil, fmt.Errorf("node id required")
 	}
-	if cfg.Peer.ID == "" || cfg.Peer.ID == cfg.ID {
-		return nil, fmt.Errorf("peer id required and must differ")
+	if cfg.Invite && cfg.AlwaysDial {
+		return nil, fmt.Errorf("invite node does not dial")
+	}
+	if !cfg.Invite {
+		if cfg.Peer.ID == "" || cfg.Peer.ID == cfg.ID {
+			return nil, fmt.Errorf("peer id required and must differ")
+		}
+		if transport.NormalizeFP(cfg.Peer.CertFP) == "" {
+			return nil, fmt.Errorf("peer certificate fingerprint required")
+		}
+	} else if cfg.Secret == "" {
+		return nil, fmt.Errorf("invite secret required")
+	}
+	if cfg.Invite && cfg.Peer.ID == cfg.ID && cfg.Peer.ID != "" {
+		return nil, fmt.Errorf("peer id must differ")
 	}
 	local, prefix, err := parseIPv4(cfg.CIDR)
 	if err != nil {
@@ -67,9 +86,6 @@ func New(cfg Config) (*Node, error) {
 	}
 	if peerIP.Equal(local) {
 		return nil, fmt.Errorf("peer IP must differ from local IP")
-	}
-	if transport.NormalizeFP(cfg.Peer.CertFP) == "" {
-		return nil, fmt.Errorf("peer certificate fingerprint required")
 	}
 	if cfg.Listen == "" {
 		cfg.Listen = "0.0.0.0:0"
@@ -110,10 +126,7 @@ func (n *Node) Start(ctx context.Context) error {
 		n.dev = dev
 	}
 
-	allow := func(fp string) bool {
-		return transport.NormalizeFP(fp) == transport.NormalizeFP(n.cfg.Peer.CertFP)
-	}
-	ln, _, err := transport.ListenQUIC(n.cfg.Listen, n.cfg.Cert, allow)
+	ln, _, err := transport.ListenQUIC(n.cfg.Listen, n.cfg.Cert, n.allowFP)
 	if err != nil {
 		n.cleanupDev()
 		return err
@@ -185,6 +198,9 @@ func (n *Node) logf(format string, args ...any) {
 }
 
 func (n *Node) allowFP(fp string) bool {
+	if n.cfg.Invite {
+		return transport.NormalizeFP(fp) != ""
+	}
 	return transport.NormalizeFP(fp) == transport.NormalizeFP(n.cfg.Peer.CertFP)
 }
 
@@ -229,7 +245,11 @@ func (n *Node) acceptRelay(ctx context.Context, relayURL, ticket string) {
 func (n *Node) dialLoop(ctx context.Context) {
 	// Only one side dials. Simultaneous dials through the relay pick
 	// opposite splices and then each close the other's live path.
-	if n.cfg.ID <= n.cfg.Peer.ID {
+	if n.cfg.Invite {
+		<-ctx.Done()
+		return
+	}
+	if !n.cfg.AlwaysDial && n.cfg.ID <= n.cfg.Peer.ID {
 		<-ctx.Done()
 		return
 	}
@@ -301,17 +321,26 @@ func (n *Node) dialPeer(ctx context.Context) (net.Conn, transport.Kind, error) {
 func (n *Node) serveConn(ctx context.Context, c net.Conn, kind transport.Kind) {
 	defer c.Close()
 	_ = c.SetDeadline(time.Now().Add(15 * time.Second))
-	if err := writeHello(c, n.cfg.ID); err != nil {
+	if err := writeHello(c, n.cfg.ID, n.cfg.Secret); err != nil {
 		n.logf("hello write: %v", err)
 		return
 	}
-	id, err := readHello(c)
+	id, secret, err := readHello(c)
 	_ = c.SetDeadline(time.Time{})
 	if err != nil {
 		n.logf("hello read: %v", err)
 		return
 	}
-	if id != n.cfg.Peer.ID {
+	if n.cfg.Secret != "" && secret != n.cfg.Secret {
+		n.logf("hello secret mismatch")
+		return
+	}
+	if n.cfg.Invite {
+		if !n.bindPeerID(id) {
+			n.logf("hello id %q rejected", id)
+			return
+		}
+	} else if id != n.cfg.Peer.ID {
 		n.logf("hello id %q != %q", id, n.cfg.Peer.ID)
 		return
 	}
@@ -379,6 +408,19 @@ func (n *Node) hasPeer() bool {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	return n.peerConn != nil
+}
+
+func (n *Node) bindPeerID(id string) bool {
+	if id == "" || id == n.cfg.ID {
+		return false
+	}
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if n.cfg.Peer.ID == "" {
+		n.cfg.Peer.ID = id
+		return true
+	}
+	return n.cfg.Peer.ID == id
 }
 
 func (n *Node) installPeer(c net.Conn, kind transport.Kind) bool {

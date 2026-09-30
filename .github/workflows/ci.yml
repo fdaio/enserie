@@ -26,7 +26,7 @@ jobs:
       - name: Test
         run: go test ./...
       - name: Build
-        run: go build ./cmd/enserie ./cmd/enserie-relay
+        run: go build ./cmd/ens ./cmd/enserie-relay
 
   dist-linux:
     runs-on: ubuntu-latest
@@ -41,16 +41,16 @@ jobs:
       - name: Inspect packages
         run: |
           set -eu
-          test -f dist/enserie_0.0.0-dev_amd64.deb
-          test -f dist/enserie_0.0.0-dev_arm64.deb
+          test -f dist/ens_0.0.0-dev_amd64.deb
+          test -f dist/ens_0.0.0-dev_arm64.deb
           test -f dist/enserie-relay_0.0.0-dev_amd64.deb
-          dpkg-deb -c dist/enserie_0.0.0-dev_amd64.deb | grep -q usr/bin/enserie
-          if dpkg-deb -c dist/enserie_0.0.0-dev_amd64.deb | grep -q enserie-relay; then
+          dpkg-deb -c dist/ens_0.0.0-dev_amd64.deb | grep -q usr/bin/ens
+          if dpkg-deb -c dist/ens_0.0.0-dev_amd64.deb | grep -q enserie-relay; then
             echo "client deb must not contain enserie-relay" >&2
             exit 1
           fi
           tar -tzf dist/enserie-relay-linux-amd64.tar.gz | grep -qx enserie-relay
-          if ls dist/enserie-darwin-*.tar.gz >/dev/null 2>&1; then
+          if ls dist/ens-darwin-*.tar.gz >/dev/null 2>&1; then
             echo "linux job must not emit darwin tarballs" >&2
             exit 1
           fi
@@ -68,9 +68,9 @@ jobs:
       - name: Inspect packages
         run: |
           set -eu
-          tar -tzf dist/enserie-darwin-arm64.tar.gz | grep -qx enserie
-          tar -tzf dist/enserie-darwin-amd64.tar.gz | grep -qx enserie
+          tar -tzf dist/ens-darwin-arm64.tar.gz | grep -qx ens
+          tar -tzf dist/ens-darwin-amd64.tar.gz | grep -qx ens
           tar -tzf dist/enserie-relay-darwin-arm64.tar.gz | grep -qx enserie-relay
-          codesign -dv dist/darwin-arm64/enserie 2>&1 | grep -qi adhoc
-          codesign -dv dist/darwin-amd64/enserie 2>&1 | grep -qi adhoc
-          dist/darwin-arm64/enserie --version
+          codesign -dv dist/darwin-arm64/ens 2>&1 | grep -qi adhoc
+          codesign -dv dist/darwin-amd64/ens 2>&1 | grep -qi adhoc
+          dist/darwin-arm64/ens version

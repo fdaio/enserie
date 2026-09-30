@@ -15,7 +15,8 @@ const (
 )
 
 type hello struct {
-	ID string `json:"id"`
+	ID     string `json:"id"`
+	Secret string `json:"s,omitempty"`
 }
 
 func writeFrame(w io.Writer, typ byte, payload []byte) error {
@@ -48,30 +49,30 @@ func readFrame(r io.Reader) (byte, []byte, error) {
 	return buf[0], buf[1:], nil
 }
 
-func writeHello(w io.Writer, id string) error {
-	b, err := json.Marshal(hello{ID: id})
+func writeHello(w io.Writer, id, secret string) error {
+	b, err := json.Marshal(hello{ID: id, Secret: secret})
 	if err != nil {
 		return err
 	}
 	return writeFrame(w, typeHello, b)
 }
 
-func readHello(r io.Reader) (string, error) {
+func readHello(r io.Reader) (string, string, error) {
 	typ, payload, err := readFrame(r)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	if typ != typeHello {
-		return "", fmt.Errorf("expected hello, got type %d", typ)
+		return "", "", fmt.Errorf("expected hello, got type %d", typ)
 	}
 	var h hello
 	if err := json.Unmarshal(payload, &h); err != nil {
-		return "", err
+		return "", "", err
 	}
 	if h.ID == "" {
-		return "", fmt.Errorf("hello missing id")
+		return "", "", fmt.Errorf("hello missing id")
 	}
-	return h.ID, nil
+	return h.ID, h.Secret, nil
 }
 
 func ipv4Dest(pkt []byte) (net.IP, error) {

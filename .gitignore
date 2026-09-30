@@ -1,0 +1,7 @@
+/bin/
+/.wf/
+*.exe
+*.out
+.DS_Store
+enserie
+enserie-relay

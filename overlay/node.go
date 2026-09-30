@@ -115,7 +115,7 @@ func (n *Node) Start(ctx context.Context) error {
 	if n.cfg.Device != nil {
 		n.dev = n.cfg.Device
 	} else {
-		dev, err := openTUN("enserie0")
+		dev, err := openTUN("")
 		if err != nil {
 			return err
 		}

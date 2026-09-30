@@ -27,3 +27,27 @@ jobs:
         run: go test ./...
       - name: Build
         run: go build ./cmd/enserie ./cmd/enserie-relay
+
+  dist:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Package
+        run: make dist
+      - name: Inspect packages
+        run: |
+          set -eu
+          test -f dist/enserie_0.0.0-dev_amd64.deb
+          test -f dist/enserie_0.0.0-dev_arm64.deb
+          test -f dist/enserie-relay_0.0.0-dev_amd64.deb
+          dpkg-deb -c dist/enserie_0.0.0-dev_amd64.deb | grep -q usr/bin/enserie
+          if dpkg-deb -c dist/enserie_0.0.0-dev_amd64.deb | grep -q enserie-relay; then
+            echo "client deb must not contain enserie-relay" >&2
+            exit 1
+          fi
+          tar -tzf dist/enserie-darwin-amd64.tar.gz | grep -qx enserie
+          tar -tzf dist/enserie-relay-linux-amd64.tar.gz | grep -qx enserie-relay

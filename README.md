@@ -12,6 +12,42 @@ go get github.com/fdaio/enserie
 
 tyd is unchanged and does not import this module yet.
 
+## Install
+
+GitHub Releases ship Ubuntu `.deb` files and macOS tarballs. There is no apt
+repository and no Homebrew formula.
+
+Ubuntu / Debian (amd64 or arm64):
+
+```bash
+ver=0.1.0
+arch=$(dpkg --print-architecture)
+curl -fsSL -o enserie.deb \
+  "https://github.com/fdaio/enserie/releases/download/v${ver}/enserie_${ver}_${arch}.deb"
+sudo dpkg -i enserie.deb
+enserie --version
+```
+
+macOS (replace `arm64` with `amd64` on Intel):
+
+```bash
+ver=0.1.0
+curl -fsSL "https://github.com/fdaio/enserie/releases/download/v${ver}/enserie-darwin-arm64.tar.gz" | tar -xz
+sudo install -m 755 enserie /usr/local/bin/enserie
+```
+
+The client package contains only `enserie`. The relay is a separate download
+(`enserie-relay_*.deb` or `enserie-relay-*.tar.gz`) for people who run their
+own splice. Most nodes can reuse tyd's hosted relays:
+
+```
+https://relay-1.getfda.dev
+https://relay-2.getfda.dev
+```
+
+Those URLs are the CLI default. `--relay off` turns fallback off.
+`--relay http://127.0.0.1:9090` points at a local `enserie-relay`.
+
 ## Overlay
 
 Each node brings:
@@ -20,7 +56,7 @@ Each node brings:
 - a local overlay CIDR (`10.7.0.1/30`)
 - the peer id, peer overlay IP (`10.7.0.2`), and peer cert fingerprint
 - optional QUIC candidates
-- optional relay URLs
+- optional relay URLs (defaults above)
 
 The process opens a TUN, assigns the local overlay IP, and forwards IPv4
 packets whose destination is the peer.
@@ -46,12 +82,13 @@ sudo enserie --id z --ip 10.7.0.2/30 --peer a=10.7.0.1 \
 Start each node once without `--peer-fp` to print its fingerprint, then restart
 with the peer value. `ping 10.7.0.2` from A should then reach Z.
 
-`--force-relay` skips QUIC. `--relay off` (or omit `--relay` and omit
-`--peer-addr`) disables fallback; dial then fails if QUIC cannot connect.
+`--force-relay` skips QUIC. `--relay off` disables fallback; dial then fails if
+QUIC cannot connect.
 
 ## Build
 
 ```bash
 make test
 make build
+make dist VERSION=0.1.0   # linux .deb + darwin tar.gz; needs dpkg-deb
 ```

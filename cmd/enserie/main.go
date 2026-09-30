@@ -15,18 +15,30 @@ import (
 	"github.com/fdaio/enserie/transport"
 )
 
+// version is set at link time from the Git tag (v0.1.0 -> 0.1.0).
+var version = "dev"
+
+// tyd's hosted relays speak the same splice protocol. --relay off disables them.
+const defaultRelays = "https://relay-1.getfda.dev,https://relay-2.getfda.dev"
+
 func main() {
 	id := flag.String("id", "", "this node id")
 	cidr := flag.String("ip", "", "overlay CIDR for this node, e.g. 10.7.0.1/30")
 	peer := flag.String("peer", "", "peer as id=ip, e.g. z=10.7.0.2")
 	peerFP := flag.String("peer-fp", "", "peer certificate SHA-256 fingerprint (hex)")
 	peerAddr := flag.String("peer-addr", "", "QUIC candidate host:port (comma-separated)")
-	relay := flag.String("relay", "", "relay URL list, comma-separated; off disables fallback")
+	relay := flag.String("relay", defaultRelays, "relay URL list, comma-separated; off disables fallback")
 	dir := flag.String("dir", "", "state directory for the TLS certificate")
 	listen := flag.String("listen", "0.0.0.0:0", "QUIC listen address")
 	advertise := flag.String("advertise", "", "extra host to print as a QUIC candidate")
 	forceRelay := flag.Bool("force-relay", false, "skip QUIC and use relay only")
+	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Println(version)
+		return
+	}
 
 	if *id == "" || *cidr == "" || *peer == "" {
 		fmt.Fprintln(os.Stderr, "usage: enserie --id a --ip 10.7.0.1/30 --peer z=10.7.0.2 --peer-fp HEX [--relay URL]")

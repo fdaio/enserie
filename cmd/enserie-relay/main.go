@@ -11,10 +11,17 @@ import (
 	"github.com/fdaio/enserie/relay"
 )
 
+var version = "dev"
+
 func main() {
 	listenDefault := envOr("ENSERIE_RELAY_LISTEN", "127.0.0.1:9090")
 	addr := flag.String("listen", listenDefault, "TCP listen address (env ENSERIE_RELAY_LISTEN)")
+	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
+	if *showVersion {
+		fmt.Println(version)
+		return
+	}
 
 	lnAddr, closeFn, err := relay.ListenAndServe(*addr)
 	if err != nil {

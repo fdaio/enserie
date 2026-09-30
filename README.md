@@ -20,7 +20,7 @@ repository and no Homebrew formula.
 Ubuntu / Debian (amd64 or arm64):
 
 ```bash
-ver=0.1.0
+ver=0.1.1
 arch=$(dpkg --print-architecture)
 curl -fsSL -o enserie.deb \
   "https://github.com/fdaio/enserie/releases/download/v${ver}/enserie_${ver}_${arch}.deb"
@@ -28,12 +28,15 @@ sudo dpkg -i enserie.deb
 enserie --version
 ```
 
-macOS (replace `arm64` with `amd64` on Intel):
+macOS (replace `arm64` with `amd64` on Intel). Use v0.1.1 or later:
+v0.1.0 darwin tarballs were cross-compiled on Linux and Gatekeeper
+SIGKILLs them.
 
 ```bash
-ver=0.1.0
+ver=0.1.1
 curl -fsSL "https://github.com/fdaio/enserie/releases/download/v${ver}/enserie-darwin-arm64.tar.gz" | tar -xz
 sudo install -m 755 enserie /usr/local/bin/enserie
+enserie --version
 ```
 
 The client package contains only `enserie`. The relay is a separate download
@@ -90,5 +93,6 @@ QUIC cannot connect.
 ```bash
 make test
 make build
-make dist VERSION=0.1.0   # linux .deb + darwin tar.gz; needs dpkg-deb
+make dist-linux VERSION=0.1.1    # .deb; needs dpkg-deb
+make dist-darwin VERSION=0.1.1   # macOS tarballs; must run on macOS
 ```

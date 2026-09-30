@@ -9,32 +9,71 @@ permissions:
   contents: write
 
 jobs:
-  release:
+  dist-linux:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
           cache: true
-
       - name: Vet and test
         run: |
           go vet ./...
           go test ./...
-
       - name: Package
-        run: make dist VERSION="${GITHUB_REF_NAME#v}"
-
+        run: make dist-linux VERSION="${GITHUB_REF_NAME#v}"
       - name: Inspect packages
         run: |
           set -eu
           dpkg-deb -I dist/enserie_*_amd64.deb
           dpkg-deb -c dist/enserie_*_amd64.deb | grep -q usr/bin/enserie
-          dpkg-deb -c dist/enserie_*_amd64.deb | grep -q enserie-relay && exit 1 || true
-          tar -tzf dist/enserie-darwin-arm64.tar.gz | grep -qx enserie
+          if dpkg-deb -c dist/enserie_*_amd64.deb | grep -q enserie-relay; then
+            echo "client deb must not contain enserie-relay" >&2
+            exit 1
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: |
+            dist/*.deb
+            dist/enserie-relay-linux-*.tar.gz
 
+  dist-darwin:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Package
+        run: make dist-darwin VERSION="${GITHUB_REF_NAME#v}"
+      - name: Inspect packages
+        run: |
+          set -eu
+          tar -tzf dist/enserie-darwin-arm64.tar.gz | grep -qx enserie
+          codesign -dv dist/darwin-arm64/enserie 2>&1 | grep -qi adhoc
+          dist/darwin-arm64/enserie --version
+      - uses: actions/upload-artifact@v4
+        with:
+          name: darwin
+          path: dist/enserie*darwin*.tar.gz
+
+  publish:
+    needs: [dist-linux, dist-darwin]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+          path: dist
+      - name: Checksums
+        run: |
+          set -eu
+          cd dist
+          sha256sum * > SHA256SUMS
+          ls -lh
       - uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true

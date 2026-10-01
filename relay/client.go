@@ -34,13 +34,13 @@ func dialRelay(ctx context.Context, relayURL string) (net.Conn, error) {
 		return nil, fmt.Errorf("relay websocket %s: %w", wsURL, err)
 	}
 	conn := websocket.NetConn(context.Background(), ws, websocket.MessageBinary)
-	go pingRelay(ctx, ws, conn)
+	go pingRelay(ctx, ws)
 	return conn, nil
 }
 
 var relayPingInterval = 25 * time.Second
 
-func pingRelay(ctx context.Context, ws *websocket.Conn, conn net.Conn) {
+func pingRelay(ctx context.Context, ws *websocket.Conn) {
 	if relayPingInterval <= 0 {
 		return
 	}
@@ -52,12 +52,8 @@ func pingRelay(ctx context.Context, ws *websocket.Conn, conn net.Conn) {
 			return
 		case <-t.C:
 			pctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-			err := ws.Ping(pctx)
+			_ = ws.Ping(pctx)
 			cancel()
-			if err != nil {
-				_ = conn.Close()
-				return
-			}
 		}
 	}
 }
@@ -116,7 +112,6 @@ func offerOnce(ctx context.Context, relayURL, nodeID string, onTicket func(ticke
 	if ack.Type != TypeOK {
 		return fmt.Errorf("relay offer: unexpected %q", ack.Type)
 	}
-	go keepOfferAlive(ctx, conn)
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -131,28 +126,6 @@ func offerOnce(ctx context.Context, relayURL, nodeID string, onTicket func(ticke
 		}
 		if msg.Type == TypeError {
 			return fmt.Errorf("relay: %s", msg.Error)
-		}
-	}
-}
-
-var offerKeepAliveInterval = 30 * time.Second
-
-func keepOfferAlive(ctx context.Context, conn net.Conn) {
-	if offerKeepAliveInterval <= 0 {
-		return
-	}
-	t := time.NewTicker(offerKeepAliveInterval)
-	defer t.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-t.C:
-			// Hosted tyd Offer reads 1 byte with a 120s deadline. A
-			// WebSocket ping does not count. One app byte resets it.
-			if _, err := conn.Write([]byte{0}); err != nil {
-				return
-			}
 		}
 	}
 }

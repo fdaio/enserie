@@ -327,30 +327,22 @@ func (n *Node) dialPeer(ctx context.Context) (net.Conn, transport.Kind, error) {
 
 func (n *Node) serveConn(ctx context.Context, c net.Conn, kind transport.Kind) {
 	defer c.Close()
-	_ = c.SetDeadline(time.Now().Add(15 * time.Second))
-	errHello := func() error {
-		defer c.SetDeadline(time.Time{})
-		if err := writeHello(c, n.cfg.ID, n.cfg.Secret); err != nil {
-			return fmt.Errorf("hello write: %w", err)
-		}
-		id, secret, err := readHello(c)
+	// Do not SetDeadline on this conn. websocket.NetConn often keeps the
+	// first deadline, which kills the path ~15s after hello.
+	errCh := make(chan error, 1)
+	go func() { errCh <- n.handshakePeer(c) }()
+	timer := time.NewTimer(helloTimeout)
+	defer timer.Stop()
+	select {
+	case err := <-errCh:
 		if err != nil {
-			return fmt.Errorf("hello read: %w", err)
+			n.logf("%v", err)
+			return
 		}
-		if n.cfg.Secret != "" && secret != n.cfg.Secret {
-			return fmt.Errorf("hello secret mismatch")
-		}
-		if n.cfg.Invite {
-			if !n.bindPeerID(id) {
-				return fmt.Errorf("hello id %q rejected", id)
-			}
-		} else if id != n.cfg.Peer.ID {
-			return fmt.Errorf("hello id %q != %q", id, n.cfg.Peer.ID)
-		}
-		return nil
-	}()
-	if errHello != nil {
-		n.logf("%v", errHello)
+	case <-timer.C:
+		n.logf("hello timeout")
+		return
+	case <-ctx.Done():
 		return
 	}
 	if !n.installPeer(c, kind) {
@@ -375,6 +367,29 @@ func (n *Node) serveConn(ctx context.Context, c net.Conn, kind transport.Kind) {
 			return
 		}
 	}
+}
+
+const helloTimeout = 15 * time.Second
+
+func (n *Node) handshakePeer(c net.Conn) error {
+	if err := writeHello(c, n.cfg.ID, n.cfg.Secret); err != nil {
+		return fmt.Errorf("hello write: %w", err)
+	}
+	id, secret, err := readHello(c)
+	if err != nil {
+		return fmt.Errorf("hello read: %w", err)
+	}
+	if n.cfg.Secret != "" && secret != n.cfg.Secret {
+		return fmt.Errorf("hello secret mismatch")
+	}
+	if n.cfg.Invite {
+		if !n.bindPeerID(id) {
+			return fmt.Errorf("hello id %q rejected", id)
+		}
+	} else if id != n.cfg.Peer.ID {
+		return fmt.Errorf("hello id %q != %q", id, n.cfg.Peer.ID)
+	}
+	return nil
 }
 
 func (n *Node) tunLoop(ctx context.Context) {

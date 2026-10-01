@@ -94,9 +94,7 @@ func offerOnce(ctx context.Context, relayURL, nodeID string, onTicket func(ticke
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		_ = conn.SetReadDeadline(time.Now().Add(90 * time.Second))
 		msg, err := ReadMsg(conn)
-		_ = conn.SetReadDeadline(time.Time{})
 		if err != nil {
 			return err
 		}

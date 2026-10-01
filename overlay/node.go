@@ -328,27 +328,29 @@ func (n *Node) dialPeer(ctx context.Context) (net.Conn, transport.Kind, error) {
 func (n *Node) serveConn(ctx context.Context, c net.Conn, kind transport.Kind) {
 	defer c.Close()
 	_ = c.SetDeadline(time.Now().Add(15 * time.Second))
-	if err := writeHello(c, n.cfg.ID, n.cfg.Secret); err != nil {
-		n.logf("hello write: %v", err)
-		return
-	}
-	id, secret, err := readHello(c)
-	_ = c.SetDeadline(time.Time{})
-	if err != nil {
-		n.logf("hello read: %v", err)
-		return
-	}
-	if n.cfg.Secret != "" && secret != n.cfg.Secret {
-		n.logf("hello secret mismatch")
-		return
-	}
-	if n.cfg.Invite {
-		if !n.bindPeerID(id) {
-			n.logf("hello id %q rejected", id)
-			return
+	errHello := func() error {
+		defer c.SetDeadline(time.Time{})
+		if err := writeHello(c, n.cfg.ID, n.cfg.Secret); err != nil {
+			return fmt.Errorf("hello write: %w", err)
 		}
-	} else if id != n.cfg.Peer.ID {
-		n.logf("hello id %q != %q", id, n.cfg.Peer.ID)
+		id, secret, err := readHello(c)
+		if err != nil {
+			return fmt.Errorf("hello read: %w", err)
+		}
+		if n.cfg.Secret != "" && secret != n.cfg.Secret {
+			return fmt.Errorf("hello secret mismatch")
+		}
+		if n.cfg.Invite {
+			if !n.bindPeerID(id) {
+				return fmt.Errorf("hello id %q rejected", id)
+			}
+		} else if id != n.cfg.Peer.ID {
+			return fmt.Errorf("hello id %q != %q", id, n.cfg.Peer.ID)
+		}
+		return nil
+	}()
+	if errHello != nil {
+		n.logf("%v", errHello)
 		return
 	}
 	if !n.installPeer(c, kind) {
@@ -368,6 +370,7 @@ func (n *Node) serveConn(ctx context.Context, c net.Conn, kind transport.Kind) {
 		if typ != typePacket {
 			continue
 		}
+		payload = stripTUNPI(payload)
 		if _, err := n.dev.WritePacket(payload); err != nil && !errors.Is(err, net.ErrClosed) {
 			return
 		}
@@ -393,12 +396,8 @@ func (n *Node) tunLoop(ctx context.Context) {
 				continue
 			}
 		}
-		pkt := buf[:nr]
-		dst, err := ipv4Dest(pkt)
-		if err != nil {
-			continue
-		}
-		if !dst.Equal(n.cfg.Peer.IP) {
+		pkt := append([]byte(nil), stripTUNPI(buf[:nr])...)
+		if _, err := ipv4Dest(pkt); err != nil {
 			continue
 		}
 		n.mu.Lock()
@@ -407,7 +406,10 @@ func (n *Node) tunLoop(ctx context.Context) {
 		if c == nil {
 			continue
 		}
-		_ = writeFrame(c, typePacket, pkt)
+		if err := writeFrame(c, typePacket, pkt); err != nil {
+			n.logf("path write: %v", err)
+			n.dropPeer()
+		}
 	}
 }
 

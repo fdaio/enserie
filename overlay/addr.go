@@ -25,6 +25,8 @@ func configureTUN(name string, local, peer net.IP, mask net.IPMask) error {
 				return fmt.Errorf("ip %s: %w (%s)", args[0], err, out)
 			}
 		}
+		configureLinuxTUNFirewall(name)
+		_ = exec.Command("sysctl", "-w", "net.ipv4.conf."+name+".rp_filter=0").Run()
 		return nil
 	default:
 		return fmt.Errorf("address setup is not supported on %s", runtime.GOOS)
@@ -37,5 +39,24 @@ func linuxTUNCommands(name string, local, peer net.IP, mtu int) [][]string {
 		{"link", "set", "dev", name, "mtu", ms},
 		{"addr", "add", local.String() + "/32", "peer", peer.String() + "/32", "dev", name},
 		{"link", "set", "dev", name, "up"},
+		// Some kernels keep the peer address but omit the on-link /32.
+		{"route", "replace", peer.String() + "/32", "dev", name, "src", local.String()},
+	}
+}
+
+func configureLinuxTUNFirewall(name string) {
+	for _, chain := range []string{"INPUT", "OUTPUT"} {
+		check := exec.Command("iptables", "-C", chain, "-i", name, "-j", "ACCEPT")
+		if chain == "OUTPUT" {
+			check = exec.Command("iptables", "-C", chain, "-o", name, "-j", "ACCEPT")
+		}
+		if check.Run() == nil {
+			continue
+		}
+		if chain == "INPUT" {
+			_ = exec.Command("iptables", "-I", chain, "-i", name, "-j", "ACCEPT").Run()
+			continue
+		}
+		_ = exec.Command("iptables", "-I", chain, "-o", name, "-j", "ACCEPT").Run()
 	}
 }

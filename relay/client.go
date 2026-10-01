@@ -33,7 +33,33 @@ func dialRelay(ctx context.Context, relayURL string) (net.Conn, error) {
 	if err != nil {
 		return nil, fmt.Errorf("relay websocket %s: %w", wsURL, err)
 	}
-	return websocket.NetConn(context.Background(), ws, websocket.MessageBinary), nil
+	conn := websocket.NetConn(context.Background(), ws, websocket.MessageBinary)
+	go pingRelay(ctx, ws, conn)
+	return conn, nil
+}
+
+var relayPingInterval = 25 * time.Second
+
+func pingRelay(ctx context.Context, ws *websocket.Conn, conn net.Conn) {
+	if relayPingInterval <= 0 {
+		return
+	}
+	t := time.NewTicker(relayPingInterval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			pctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			err := ws.Ping(pctx)
+			cancel()
+			if err != nil {
+				_ = conn.Close()
+				return
+			}
+		}
+	}
 }
 
 // Offer keeps a rendezvous on the relay for nodeID. onTicket is called for
@@ -90,13 +116,12 @@ func offerOnce(ctx context.Context, relayURL, nodeID string, onTicket func(ticke
 	if ack.Type != TypeOK {
 		return fmt.Errorf("relay offer: unexpected %q", ack.Type)
 	}
+	go keepOfferAlive(ctx, conn)
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		_ = conn.SetReadDeadline(time.Now().Add(90 * time.Second))
 		msg, err := ReadMsg(conn)
-		_ = conn.SetReadDeadline(time.Time{})
 		if err != nil {
 			return err
 		}
@@ -106,6 +131,28 @@ func offerOnce(ctx context.Context, relayURL, nodeID string, onTicket func(ticke
 		}
 		if msg.Type == TypeError {
 			return fmt.Errorf("relay: %s", msg.Error)
+		}
+	}
+}
+
+var offerKeepAliveInterval = 30 * time.Second
+
+func keepOfferAlive(ctx context.Context, conn net.Conn) {
+	if offerKeepAliveInterval <= 0 {
+		return
+	}
+	t := time.NewTicker(offerKeepAliveInterval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			// Hosted tyd Offer reads 1 byte with a 120s deadline. A
+			// WebSocket ping does not count. One app byte resets it.
+			if _, err := conn.Write([]byte{0}); err != nil {
+				return
+			}
 		}
 	}
 }

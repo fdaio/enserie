@@ -12,6 +12,41 @@ import (
 	"github.com/fdaio/enserie/transport"
 )
 
+func TestHandshakePeerDoesNotSetDeadline(t *testing.T) {
+	a, b := net.Pipe()
+	t.Cleanup(func() { _ = a.Close(); _ = b.Close() })
+	n := &Node{cfg: Config{ID: "a", Secret: "s", Invite: true}}
+	spy := &deadlineSpy{Conn: a}
+	peerErr := make(chan error, 1)
+	go func() {
+		_, _, err := readHello(b)
+		if err != nil {
+			peerErr <- err
+			return
+		}
+		peerErr <- writeHello(b, "z", "s")
+	}()
+	if err := n.handshakePeer(spy); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-peerErr; err != nil {
+		t.Fatal(err)
+	}
+	if spy.n != 0 {
+		t.Fatalf("SetDeadline called %d times", spy.n)
+	}
+}
+
+type deadlineSpy struct {
+	net.Conn
+	n int
+}
+
+func (s *deadlineSpy) SetDeadline(time.Time) error {
+	s.n++
+	return nil
+}
+
 func TestOverlayQUICForwardsPacket(t *testing.T) {
 	a, b := pair(t, false)
 	defer a.Close()

@@ -11,7 +11,6 @@ import (
 const overlayMTU = 1280
 
 func configureTUN(name string, local, peer net.IP, mask net.IPMask) error {
-	ones, _ := mask.Size()
 	switch runtime.GOOS {
 	case "darwin":
 		netmask := net.IP(mask).String()
@@ -21,18 +20,22 @@ func configureTUN(name string, local, peer net.IP, mask net.IPMask) error {
 		}
 		return nil
 	case "linux":
-		cidr := fmt.Sprintf("%s/%d", local.String(), ones)
-		if out, err := exec.Command("ip", "link", "set", "dev", name, "mtu", strconv.Itoa(overlayMTU)).CombinedOutput(); err != nil {
-			return fmt.Errorf("ip link mtu: %w (%s)", err, out)
-		}
-		if out, err := exec.Command("ip", "addr", "add", cidr, "dev", name).CombinedOutput(); err != nil {
-			return fmt.Errorf("ip addr add: %w (%s)", err, out)
-		}
-		if out, err := exec.Command("ip", "link", "set", "dev", name, "up").CombinedOutput(); err != nil {
-			return fmt.Errorf("ip link up: %w (%s)", err, out)
+		for _, args := range linuxTUNCommands(name, local, peer, overlayMTU) {
+			if out, err := exec.Command("ip", args...).CombinedOutput(); err != nil {
+				return fmt.Errorf("ip %s: %w (%s)", args[0], err, out)
+			}
 		}
 		return nil
 	default:
 		return fmt.Errorf("address setup is not supported on %s", runtime.GOOS)
+	}
+}
+
+func linuxTUNCommands(name string, local, peer net.IP, mtu int) [][]string {
+	ms := strconv.Itoa(mtu)
+	return [][]string{
+		{"link", "set", "dev", name, "mtu", ms},
+		{"addr", "add", local.String() + "/32", "peer", peer.String() + "/32", "dev", name},
+		{"link", "set", "dev", name, "up"},
 	}
 }

@@ -118,17 +118,17 @@ func FilterOverlayAddrs(addrs []string, n *net.IPNet) []string {
 	return out
 }
 
-// RandomLink picks a /30 in 10.0.0.0/8. The caller takes the returned CIDR;
-// OtherCIDR gives the peer address.
+// RandomLink picks a /30 in 198.18.0.0/15 (RFC 2544). That range is not
+// used on most LANs, so the TUN route is not hidden by a 10.0.0.0/8.
 func RandomLink() (string, error) {
 	var b [3]byte
 	if _, err := rand.Read(b[:]); err != nil {
 		return "", err
 	}
-	x := int(b[0])%254 + 1
+	x := 18 + int(b[0])%2
 	y := int(b[1])
 	z := int(b[2]) &^ 3
-	return fmt.Sprintf("10.%d.%d.%d/30", x, y, z+1), nil
+	return fmt.Sprintf("198.%d.%d.%d/30", x, y, z+1), nil
 }
 
 func RandomID() (string, error) {

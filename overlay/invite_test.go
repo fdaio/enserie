@@ -54,6 +54,9 @@ func TestRandomLink(t *testing.T) {
 	if !n.Contains(local) || !n.Contains(other) || local.Equal(other) {
 		t.Fatalf("bad link %s peer %s", cidr, peer)
 	}
+	if local[0] != 198 || (local[1] != 18 && local[1] != 19) {
+		t.Fatalf("overlay %s is not in 198.18.0.0/15", cidr)
+	}
 }
 
 func TestOtherCIDR(t *testing.T) {

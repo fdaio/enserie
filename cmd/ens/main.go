@@ -52,6 +52,11 @@ func usage() {
 }
 
 func runInvite() error {
+	lock, err := acquireInstanceLock()
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
 	id, err := overlay.RandomID()
 	if err != nil {
 		return err
@@ -116,7 +121,7 @@ func runInvite() error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stderr, "ens: overlay %s  peer will be %s\n", n.LocalIP(), n.PeerIP())
+	fmt.Fprintf(os.Stderr, "ens: tun %s overlay %s  peer will be %s\n", n.DeviceName(), n.LocalIP(), n.PeerIP())
 	fmt.Fprintf(os.Stderr, "ens: on the other machine run:\n\n")
 	fmt.Printf("sudo ens accept %s\n\n", token)
 	go reportPath(ctx, n)
@@ -125,6 +130,11 @@ func runInvite() error {
 }
 
 func runAccept(token string) error {
+	lock, err := acquireInstanceLock()
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
 	inv, err := overlay.ParseInvite(token)
 	if err != nil {
 		return err
@@ -169,7 +179,7 @@ func runAccept(token string) error {
 		return wrapStart(err)
 	}
 	defer n.Close()
-	fmt.Fprintf(os.Stderr, "ens: overlay %s  peer %s\n", n.LocalIP(), n.PeerIP())
+	fmt.Fprintf(os.Stderr, "ens: tun %s overlay %s  peer %s\n", n.DeviceName(), n.LocalIP(), n.PeerIP())
 	go reportPath(ctx, n)
 	<-ctx.Done()
 	return nil

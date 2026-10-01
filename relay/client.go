@@ -10,6 +10,12 @@ import (
 	"github.com/coder/websocket"
 )
 
+func websocketHTTPClient() *http.Client {
+	// Handshake time is bound by dialCtx. Client.Timeout would also cover
+	// the splice and close a live path after that duration.
+	return &http.Client{}
+}
+
 func dialRelay(ctx context.Context, relayURL string) (net.Conn, error) {
 	wsURL, err := WebSocketURL(relayURL)
 	if err != nil {
@@ -22,7 +28,7 @@ func dialRelay(ctx context.Context, relayURL string) (net.Conn, error) {
 		defer cancel()
 	}
 	ws, _, err := websocket.Dial(dialCtx, wsURL, &websocket.DialOptions{
-		HTTPClient: &http.Client{Timeout: 15 * time.Second},
+		HTTPClient: websocketHTTPClient(),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("relay websocket %s: %w", wsURL, err)

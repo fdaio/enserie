@@ -97,6 +97,13 @@ func New(cfg Config) (*Node, error) {
 func (n *Node) LocalIP() net.IP { return n.local }
 func (n *Node) PeerIP() net.IP  { return n.cfg.Peer.IP }
 
+func (n *Node) DeviceName() string {
+	if n.dev == nil {
+		return ""
+	}
+	return n.dev.Name()
+}
+
 func (n *Node) Path() transport.Kind {
 	n.mu.Lock()
 	defer n.mu.Unlock()

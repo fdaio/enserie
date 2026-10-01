@@ -75,7 +75,20 @@ func readHello(r io.Reader) (string, string, error) {
 	return h.ID, h.Secret, nil
 }
 
+// stripTUNPI drops a Linux TUN protocol-info header when present.
+func stripTUNPI(pkt []byte) []byte {
+	if len(pkt) >= 20 && pkt[0]>>4 == 4 {
+		return pkt
+	}
+	const ethPIPv4 = 0x0800
+	if len(pkt) >= 24 && binary.BigEndian.Uint16(pkt[2:4]) == ethPIPv4 && pkt[4]>>4 == 4 {
+		return pkt[4:]
+	}
+	return pkt
+}
+
 func ipv4Dest(pkt []byte) (net.IP, error) {
+	pkt = stripTUNPI(pkt)
 	if len(pkt) < 20 {
 		return nil, fmt.Errorf("ip packet too short")
 	}

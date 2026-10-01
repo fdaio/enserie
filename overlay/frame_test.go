@@ -3,8 +3,32 @@ package overlay
 import (
 	"bytes"
 	"encoding/binary"
+	"net"
 	"testing"
 )
+
+func TestStripTUNPI(t *testing.T) {
+	src := netIP(t, "198.18.0.1")
+	dst := netIP(t, "198.18.0.2")
+	pkt := ipv4Packet(src, dst, []byte("hi"))
+	if got := stripTUNPI(pkt); !bytes.Equal(got, pkt) {
+		t.Fatal("plain IPv4 must stay unchanged")
+	}
+	pi := make([]byte, 4+len(pkt))
+	binary.BigEndian.PutUint16(pi[2:4], 0x0800)
+	copy(pi[4:], pkt)
+	got := stripTUNPI(pi)
+	if !bytes.Equal(got, pkt) {
+		t.Fatalf("PI prefix not stripped: %d bytes", len(got))
+	}
+	dest, err := ipv4Dest(pi)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !dest.Equal(net.IP(dst)) {
+		t.Fatalf("dest %s", dest)
+	}
+}
 
 func TestIPv4Dest(t *testing.T) {
 	src := netIP(t, "10.7.0.1")

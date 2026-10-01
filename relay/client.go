@@ -33,29 +33,7 @@ func dialRelay(ctx context.Context, relayURL string) (net.Conn, error) {
 	if err != nil {
 		return nil, fmt.Errorf("relay websocket %s: %w", wsURL, err)
 	}
-	conn := websocket.NetConn(context.Background(), ws, websocket.MessageBinary)
-	go pingRelay(ctx, ws)
-	return conn, nil
-}
-
-var relayPingInterval = 25 * time.Second
-
-func pingRelay(ctx context.Context, ws *websocket.Conn) {
-	if relayPingInterval <= 0 {
-		return
-	}
-	t := time.NewTicker(relayPingInterval)
-	defer t.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-t.C:
-			pctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-			_ = ws.Ping(pctx)
-			cancel()
-		}
-	}
+	return websocket.NetConn(context.Background(), ws, websocket.MessageBinary), nil
 }
 
 // Offer keeps a rendezvous on the relay for nodeID. onTicket is called for

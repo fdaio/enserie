@@ -12,13 +12,13 @@ go get github.com/fdaio/enserie
 
 ## Install
 
-GitHub Releases ship Ubuntu `.deb` files and macOS tarballs. Use v0.2.0 or
-later for `ens invite`.
+GitHub Releases ship Ubuntu `.deb` files and macOS tarballs. Use v0.2.6 or
+later for background `ens invite`.
 
 Ubuntu / Debian (amd64 or arm64):
 
 ```bash
-ver=0.2.0
+ver=0.2.6
 arch=$(dpkg --print-architecture)
 curl -fsSL -o ens.deb \
   "https://github.com/fdaio/enserie/releases/download/v${ver}/ens_${ver}_${arch}.deb"
@@ -29,7 +29,7 @@ ens version
 macOS (replace `arm64` with `amd64` on Intel):
 
 ```bash
-ver=0.2.0
+ver=0.2.6
 curl -fsSL "https://github.com/fdaio/enserie/releases/download/v${ver}/ens-darwin-arm64.tar.gz" | tar -xz
 sudo install -m 755 ens /usr/local/bin/ens
 ens version
@@ -54,8 +54,11 @@ sudo ens accept <token>
 ```
 
 The two hosts pick a `/30`, exchange identities, and connect. QUIC is tried
-first. Relay is automatic when QUIC cannot complete. Leave both processes
-running. Ctrl-C tears the link down; start a new invite to pair again.
+first. Relay is automatic when QUIC cannot complete.
+
+After the first path is up, the parent prints a pid and returns the shell.
+The worker keeps the TUN. `sudo ens down` stops it. Later path logs go to
+`/run/ens.log`.
 
 When the path is up, `ping` the overlay IP printed on the other side.
 
@@ -64,6 +67,6 @@ When the path is up, `ping` the overlay IP printed on the other side.
 ```bash
 make test
 make build
-make dist-linux VERSION=0.2.0
-make dist-darwin VERSION=0.2.0
+make dist-linux VERSION=0.2.6
+make dist-darwin VERSION=0.2.6
 ```

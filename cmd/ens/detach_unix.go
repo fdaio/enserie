@@ -11,6 +11,8 @@ import (
 	"os/exec"
 	"os/signal"
 	"syscall"
+
+	"golang.org/x/sys/unix"
 )
 
 const (
@@ -123,7 +125,7 @@ func redirectLogs() {
 	if err != nil {
 		return
 	}
-	_ = syscall.Dup2(int(f.Fd()), 1)
-	_ = syscall.Dup2(int(f.Fd()), 2)
+	_ = unix.Dup2(int(f.Fd()), 1)
+	_ = unix.Dup2(int(f.Fd()), 2)
 	_ = f.Close()
 }

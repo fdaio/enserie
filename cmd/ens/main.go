@@ -26,7 +26,7 @@ func main() {
 	case "version", "--version", "-version":
 		fmt.Println(version)
 	case "invite":
-		if err := runInvite(); err != nil {
+		if err := maybeSupervise(runInvite); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
@@ -35,7 +35,12 @@ func main() {
 			usage()
 			os.Exit(2)
 		}
-		if err := runAccept(os.Args[2]); err != nil {
+		if err := maybeSupervise(func() error { return runAccept(os.Args[2]) }); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+	case "down":
+		if err := runDown(); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
@@ -48,6 +53,7 @@ func main() {
 func usage() {
 	fmt.Fprintln(os.Stderr, "usage: ens invite")
 	fmt.Fprintln(os.Stderr, "       ens accept TOKEN")
+	fmt.Fprintln(os.Stderr, "       ens down")
 	fmt.Fprintln(os.Stderr, "       ens version")
 }
 
@@ -189,6 +195,10 @@ func reportPath(ctx context.Context, n *overlay.Node) {
 	for {
 		if k := n.Path(); k != "" {
 			fmt.Fprintf(os.Stderr, "ens: connected via %s\n", k)
+			if isWorker() {
+				redirectLogs()
+				notifyConnected()
+			}
 			return
 		}
 		select {

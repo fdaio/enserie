@@ -12,6 +12,7 @@ import (
 
 type tunDevice struct {
 	file *os.File
+	fd   int
 	name string
 }
 
@@ -50,21 +51,28 @@ func openTUNNamed(name string) (Device, error) {
 		return nil, err
 	}
 	ifr.SetUint16(unix.IFF_TUN | unix.IFF_NO_PI)
-	if err := unix.IoctlIfreq(int(f.Fd()), unix.TUNSETIFF, ifr); err != nil {
+	fd := int(f.Fd())
+	if err := unix.IoctlIfreq(fd, unix.TUNSETIFF, ifr); err != nil {
 		_ = f.Close()
 		return nil, fmt.Errorf("TUNSETIFF %s: %w", name, err)
 	}
-	return &tunDevice{file: f, name: ifr.Name()}, nil
+	// Orb virtio TUN does not wake the Go epoll poller. A blocking
+	// unix.Read sees packets that file.Read never returns.
+	if err := unix.SetNonblock(fd, false); err != nil {
+		_ = f.Close()
+		return nil, err
+	}
+	return &tunDevice{file: f, fd: fd, name: ifr.Name()}, nil
 }
 
 func (t *tunDevice) Name() string { return t.name }
 
 func (t *tunDevice) ReadPacket(b []byte) (int, error) {
-	return t.file.Read(b)
+	return unix.Read(t.fd, b)
 }
 
 func (t *tunDevice) WritePacket(b []byte) (int, error) {
-	return t.file.Write(b)
+	return unix.Write(t.fd, b)
 }
 
 func (t *tunDevice) Close() error { return t.file.Close() }

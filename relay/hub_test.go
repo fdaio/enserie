@@ -7,6 +7,13 @@ import (
 	"time"
 )
 
+func (h *Hub) offerRegistered(id string) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	_, ok := h.offers[id]
+	return ok
+}
+
 func readMsg(t *testing.T, c net.Conn, what string) Msg {
 	t.Helper()
 	_ = c.SetReadDeadline(time.Now().Add(spliceBudget))
@@ -15,6 +22,18 @@ func readMsg(t *testing.T, c net.Conn, what string) Msg {
 		t.Fatalf("%s: %v", what, err)
 	}
 	return msg
+}
+
+func waitOffer(t *testing.T, hub *Hub, id string) bool {
+	t.Helper()
+	deadline := time.Now().Add(spliceBudget)
+	for time.Now().Before(deadline) {
+		if hub.offerRegistered(id) {
+			return true
+		}
+		time.Sleep(time.Millisecond)
+	}
+	return false
 }
 
 // The offer, the dial and the accept are three connections that the hub keeps
@@ -38,6 +57,11 @@ func TestHubSplicesOfferedDialedAndAcceptedNode(t *testing.T) {
 	}
 	if ack := readMsg(t, offerClient, "offer ack"); ack.Type != TypeOK {
 		t.Fatalf("offer ack = %+v, want %q", ack, TypeOK)
+	}
+	// The hub publishes the offer once the ack is out. Dialing before that
+	// would only prove that a dial for an unknown peer is refused.
+	if !waitOffer(t, hub, "node-a") {
+		t.Fatal("offer was never registered")
 	}
 
 	go hub.Handle(dialRelay)

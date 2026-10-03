@@ -7,13 +7,6 @@ import (
 	"time"
 )
 
-func (h *Hub) offerRegistered(id string) bool {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	_, ok := h.offers[id]
-	return ok
-}
-
 // ackGateConn holds the first write, which is the offer ack, until the test
 // releases it.
 type ackGateConn struct {
@@ -66,12 +59,8 @@ func TestOfferIsPublishedOnlyAfterItsAck(t *testing.T) {
 		t.Fatalf("ack = %+v, err = %v", ack, err)
 	}
 
-	deadline := time.Now().Add(3 * time.Second)
-	for !hub.offerRegistered("node-a") {
-		if time.Now().After(deadline) {
-			t.Fatal("offer was not published after its ack")
-		}
-		time.Sleep(time.Millisecond)
+	if !waitOffer(t, hub, "node-a") {
+		t.Fatal("offer was not published after its ack")
 	}
 }
 
@@ -97,12 +86,8 @@ func TestTicketReachesAnAcknowledgedOffer(t *testing.T) {
 	}
 
 	// The hub publishes the offer after the ack goes out, so wait for it.
-	deadline := time.Now().Add(3 * time.Second)
-	for !hub.offerRegistered("node-a") {
-		if time.Now().After(deadline) {
-			t.Fatal("offer was never registered")
-		}
-		time.Sleep(time.Millisecond)
+	if !waitOffer(t, hub, "node-a") {
+		t.Fatal("offer was never registered")
 	}
 
 	go hub.Handle(dialRelay)

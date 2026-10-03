@@ -43,6 +43,13 @@ On machine A:
 sudo ens invite
 ```
 
+By default the link comes from `198.18.0.0/15`, the range RFC 2544 reserves for
+benchmarks. Pass `--subnet` to choose another range:
+
+```bash
+sudo ens invite --subnet 10.99.0.0/24
+```
+
 It prints a one-line command. On machine Z, paste it:
 
 ```bash
@@ -57,6 +64,18 @@ The worker keeps the TUN. `sudo ens down` stops it. Later path logs go to
 `/run/ens.log`.
 
 When the path is up, `ping` the overlay IP printed on the other side.
+
+### When a VPN takes the range
+
+A VPN can route the overlay away from the TUN, and the symptom is quiet: the
+path comes up, `ens` reports `connected via quic` or `connected via relay`, and
+the overlay IP then drops every packet. Cloudflare WARP does this on Linux, for
+example, because its policy rules outrank the main routing table.
+
+The packet never reaches the interface, so `ping` shows no reply and the TUN
+counters stay flat. Check it with `ip route get <peer overlay IP>`: the answer
+must name the TUN, such as `enserie0`, and not a tunnel. Passing `--subnet` with
+a range the VPN does not claim is the way out.
 
 ## Use as a library
 

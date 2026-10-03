@@ -15,8 +15,11 @@ import (
 // copies ciphertext it cannot read. Each side pins the peer certificate
 // fingerprint from overlay config.
 
+// E2EHandshakeTimeout bounds the TLS handshake on a spliced connection.
 const E2EHandshakeTimeout = 30 * time.Second
 
+// E2EServerConfig returns the TLS config for the accepting side of a splice.
+// allowFP decides which peer fingerprint is accepted.
 func E2EServerConfig(cert tls.Certificate, allowFP func(string) bool) *tls.Config {
 	cfg := &tls.Config{
 		Certificates: []tls.Certificate{cert},
@@ -30,6 +33,8 @@ func E2EServerConfig(cert tls.Certificate, allowFP func(string) bool) *tls.Confi
 	return cfg
 }
 
+// E2EClientConfig returns the TLS config for the dialing side of a splice. It
+// pins the server fingerprint, so it skips the certificate authority check.
 func E2EClientConfig(cert tls.Certificate, serverFP string) *tls.Config {
 	return &tls.Config{
 		Certificates:       []tls.Certificate{cert},
@@ -43,6 +48,7 @@ func E2EClientConfig(cert tls.Certificate, serverFP string) *tls.Config {
 	}
 }
 
+// ServerE2E wraps a spliced connection in TLS as the server.
 func ServerE2E(conn net.Conn, cfg *tls.Config) (*tls.Conn, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("relay e2e: nil server config")
@@ -51,6 +57,7 @@ func ServerE2E(conn net.Conn, cfg *tls.Config) (*tls.Conn, error) {
 	return handshake(tc)
 }
 
+// ClientE2E wraps a spliced connection in TLS as the client.
 func ClientE2E(conn net.Conn, cfg *tls.Config) (*tls.Conn, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("relay e2e: nil client config")

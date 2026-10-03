@@ -1,3 +1,8 @@
+// Package transport carries the overlay data plane over QUIC or a relay.
+//
+// Both paths run inside TLS 1.3, and a peer is accepted by certificate
+// fingerprint instead of by a certificate authority. Wrap adds the topology
+// metadata that the overlay logs.
 package transport
 
 import (
@@ -6,19 +11,25 @@ import (
 	"net"
 )
 
+// Kind names the transport that carries a peer connection.
 type Kind string
 
 const (
-	KindQUIC  Kind = "quic"
+	// KindQUIC is a direct QUIC connection.
+	KindQUIC Kind = "quic"
+	// KindRelay is a connection that a relay spliced.
 	KindRelay Kind = "relay"
 )
 
 // Endpoint identifies how to listen or dial.
 type Endpoint struct {
-	Kind    Kind
+	// Kind is the transport. An empty kind leaves the address plain.
+	Kind Kind
+	// Address is a host:port pair.
 	Address string
 }
 
+// String returns the address, prefixed with the kind when there is one.
 func (e Endpoint) String() string {
 	if e.Kind == "" {
 		return e.Address
@@ -32,12 +43,19 @@ type Conn interface {
 	Info() Info
 }
 
+// Info describes the topology of a connection.
 type Info struct {
-	Transport  Kind   `json:"transport"`
-	LocalAddr  string `json:"local_addr"`
+	// Transport names the path.
+	Transport Kind `json:"transport"`
+	// LocalAddr is this end of the connection. Wrap fills it when empty.
+	LocalAddr string `json:"local_addr"`
+	// RemoteAddr is the peer end. Wrap fills it when empty.
 	RemoteAddr string `json:"remote_addr"`
-	TLS        bool   `json:"tls"`
-	CertFP     string `json:"cert_fp,omitempty"`
+	// TLS marks a connection that this package secures with TLS.
+	TLS bool `json:"tls"`
+	// CertFP is the peer fingerprint. It stays empty when no peer
+	// fingerprint was checked.
+	CertFP string `json:"cert_fp,omitempty"`
 }
 
 type wrapped struct {
@@ -47,6 +65,8 @@ type wrapped struct {
 
 func (w *wrapped) Info() Info { return w.info }
 
+// Wrap returns c with topology metadata. It fills the two addresses from the
+// connection when the caller left them empty.
 func Wrap(c net.Conn, info Info) Conn {
 	if info.LocalAddr == "" && c.LocalAddr() != nil {
 		info.LocalAddr = c.LocalAddr().String()

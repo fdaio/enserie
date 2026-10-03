@@ -23,15 +23,24 @@ func DefaultRelayURLs() []string {
 
 // Invite is the copy-paste token from `ens invite`.
 type Invite struct {
-	V      int      `json:"v"`
-	ID     string   `json:"id"`
-	FP     string   `json:"fp"`
-	CIDR   string   `json:"cidr"`
-	Addrs  []string `json:"addrs,omitempty"`
+	// V is the token format version. Encode fills it when it is empty.
+	V int `json:"v"`
+	// ID is the inviting node id.
+	ID string `json:"id"`
+	// FP is the inviting node certificate fingerprint in hex.
+	FP string `json:"fp"`
+	// CIDR is the inviting node overlay address, e.g. 10.7.0.1/30.
+	CIDR string `json:"cidr"`
+	// Addrs are the QUIC candidates that the inviting node can be dialed on.
+	Addrs []string `json:"addrs,omitempty"`
+	// Relays are the relays that both nodes use. ParseInvite fills the
+	// hosted splices when the token omits them.
 	Relays []string `json:"relays,omitempty"`
-	Secret string   `json:"s"`
+	// Secret is the shared secret that authenticates the accepting node.
+	Secret string `json:"s"`
 }
 
+// Encode returns the token to hand to the accepting node.
 func (inv Invite) Encode() (string, error) {
 	if inv.V == 0 {
 		inv.V = inviteVersion
@@ -43,6 +52,8 @@ func (inv Invite) Encode() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(b), nil
 }
 
+// ParseInvite reads a token. It rejects an unknown version and a missing
+// field, and it fills Relays with the hosted splices when the token omits them.
 func ParseInvite(token string) (Invite, error) {
 	token = strings.TrimSpace(token)
 	raw, err := base64.RawURLEncoding.DecodeString(token)
@@ -98,6 +109,8 @@ func otherUsable(local net.IP, n *net.IPNet) (net.IP, error) {
 	return nil, fmt.Errorf("no other host in %s", n)
 }
 
+// FilterOverlayAddrs drops the addresses inside the overlay prefix, because a
+// peer cannot reach those addresses from outside the link.
 func FilterOverlayAddrs(addrs []string, n *net.IPNet) []string {
 	if n == nil {
 		return addrs
@@ -131,6 +144,7 @@ func RandomLink() (string, error) {
 	return fmt.Sprintf("198.%d.%d.%d/30", x, y, z+1), nil
 }
 
+// RandomID returns a random node id for one side of a link.
 func RandomID() (string, error) {
 	var b [6]byte
 	if _, err := rand.Read(b[:]); err != nil {
@@ -139,6 +153,7 @@ func RandomID() (string, error) {
 	return hex.EncodeToString(b[:]), nil
 }
 
+// RandomSecret returns a random invite secret for one link.
 func RandomSecret() (string, error) {
 	var b [16]byte
 	if _, err := rand.Read(b[:]); err != nil {

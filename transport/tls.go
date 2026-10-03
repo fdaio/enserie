@@ -19,11 +19,13 @@ import (
 	"time"
 )
 
+// Fingerprint returns the SHA-256 of a certificate in hex.
 func Fingerprint(cert *x509.Certificate) string {
 	sum := sha256.Sum256(cert.Raw)
 	return hex.EncodeToString(sum[:])
 }
 
+// ShortFP shortens a fingerprint for logs.
 func ShortFP(fp string) string {
 	if len(fp) > 16 {
 		return fp[:16]
@@ -31,10 +33,15 @@ func ShortFP(fp string) string {
 	return fp
 }
 
+// NormalizeFP lowercases a fingerprint and trims spaces, so a value that a user
+// pasted compares equal to the value that the code computes.
 func NormalizeFP(fp string) string {
 	return strings.ToLower(strings.TrimSpace(fp))
 }
 
+// EnsureServerCert loads the certificate pair, or creates a self-signed pair
+// when the files are missing. Peers pin a certificate by fingerprint, so the
+// names in the certificate are never checked.
 func EnsureServerCert(certPath, keyPath string) (tls.Certificate, error) {
 	if _, err := os.Stat(certPath); err == nil {
 		if _, err := os.Stat(keyPath); err == nil {
@@ -44,6 +51,7 @@ func EnsureServerCert(certPath, keyPath string) (tls.Certificate, error) {
 	return generateAndWriteCert(certPath, keyPath)
 }
 
+// CertFingerprint returns the fingerprint of a certificate in hex.
 func CertFingerprint(cert tls.Certificate) (string, error) {
 	if len(cert.Certificate) == 0 {
 		return "", fmt.Errorf("empty certificate")
@@ -108,6 +116,7 @@ func generateAndWriteCert(certPath, keyPath string) (tls.Certificate, error) {
 		pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER}))
 }
 
+// LoadPinnedCert reads a PEM certificate from a file.
 func LoadPinnedCert(path string) (*x509.Certificate, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {

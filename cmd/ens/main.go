@@ -3,11 +3,14 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"flag"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -26,7 +29,12 @@ func main() {
 	case "version", "--version", "-version":
 		fmt.Println(version)
 	case "invite":
-		if err := maybeSupervise(runInvite); err != nil {
+		subnet, err := parseInviteFlags(os.Args[2:])
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		if err := maybeSupervise(func() error { return runInvite(subnet) }); err != nil {
 			reportFailure(err)
 			os.Exit(1)
 		}
@@ -51,10 +59,44 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: ens invite")
+	fmt.Fprintln(os.Stderr, "usage: ens invite [--subnet CIDR]")
 	fmt.Fprintln(os.Stderr, "       ens accept TOKEN")
 	fmt.Fprintln(os.Stderr, "       ens down")
 	fmt.Fprintln(os.Stderr, "       ens version")
+}
+
+// parseInviteFlags reads the options for ens invite. The overlay range is
+// fixed by default, so a caller passes --subnet only when a VPN or another
+// network already holds the default range.
+func parseInviteFlags(args []string) (string, error) {
+	fs := flag.NewFlagSet("invite", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	subnet := fs.String("subnet", "", "IPv4 network to take the overlay link from, e.g. 10.99.0.0/24")
+	if err := fs.Parse(args); err != nil {
+		return "", fmt.Errorf("%w\n\n%s", err, inviteFlagHelp())
+	}
+	// A flag package reads "--subnet --relay" as the subnet "--relay" and
+	// leaves the rest as positional arguments, so check the value first and
+	// name the option rather than reporting a broken CIDR.
+	if *subnet != "" && strings.HasPrefix(*subnet, "-") {
+		return "", fmt.Errorf("--subnet needs a network, got the option %q\n\n%s", *subnet, inviteFlagHelp())
+	}
+	if fs.NArg() > 0 {
+		return "", fmt.Errorf("ens invite takes no positional argument\n\n%s", inviteFlagHelp())
+	}
+	return *subnet, nil
+}
+
+func inviteFlagHelp() string {
+	var b strings.Builder
+	fs := flag.NewFlagSet("invite", flag.ContinueOnError)
+	fs.String("subnet", "", "IPv4 network to take the overlay link from, e.g. 10.99.0.0/24")
+	fmt.Fprintf(&b, "usage: ens invite [--subnet CIDR]\n")
+	old := fs.Output()
+	fs.SetOutput(&b)
+	fs.PrintDefaults()
+	fs.SetOutput(old)
+	return b.String()
 }
 
 // reportFailure prints err once. A worker that fails before the path is up
@@ -67,7 +109,7 @@ func reportFailure(err error) {
 	fmt.Fprintln(os.Stderr, err)
 }
 
-func runInvite() error {
+func runInvite(subnet string) error {
 	lock, err := acquireInstanceLock()
 	if err != nil {
 		return err
@@ -82,6 +124,9 @@ func runInvite() error {
 		return err
 	}
 	inviteCIDR, err := overlay.RandomLink()
+	if subnet != "" {
+		inviteCIDR, err = overlay.RandomLinkIn(subnet)
+	}
 	if err != nil {
 		return err
 	}

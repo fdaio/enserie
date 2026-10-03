@@ -131,17 +131,47 @@ func FilterOverlayAddrs(addrs []string, n *net.IPNet) []string {
 	return out
 }
 
-// RandomLink picks a /30 in 198.18.0.0/15 (RFC 2544). That range is not
-// used on most LANs, so the TUN route is not hidden by a 10.0.0.0/8.
+// linkBlocks is how many /30 links fit in 198.18.0.0/15, which is the range
+// RFC 2544 reserves for benchmarks. That range is not used on most LANs, so the
+// TUN route is not hidden by a 10.0.0.0/8.
+const linkSubnet = "198.18.0.0/15"
+
+// RandomLink picks a /30 in 198.18.0.0/15 (RFC 2544).
 func RandomLink() (string, error) {
-	var b [3]byte
-	if _, err := rand.Read(b[:]); err != nil {
+	return RandomLinkIn(linkSubnet)
+}
+
+// RandomLinkIn picks a /30 inside the given IPv4 network, for callers whose
+// default range is taken by a VPN or another network. Only the network part of
+// subnet counts, so both 10.99.0.0/24 and 10.99.0.5/24 give the same range. The
+// network must hold at least one /30.
+func RandomLinkIn(subnet string) (string, error) {
+	ip, network, err := net.ParseCIDR(subnet)
+	if err != nil {
+		return "", fmt.Errorf("overlay subnet: %w", err)
+	}
+	v4 := ip.To4()
+	if v4 == nil {
+		return "", fmt.Errorf("overlay subnet %q is not IPv4", subnet)
+	}
+	ones, bits := network.Mask.Size()
+	if bits != 32 {
+		return "", fmt.Errorf("overlay subnet %q is not IPv4", subnet)
+	}
+	if ones > 30 {
+		return "", fmt.Errorf("overlay subnet %q is smaller than a /30", subnet)
+	}
+	blocks := 1 << (32 - ones - 2)
+	var pick [4]byte
+	if _, err := rand.Read(pick[:]); err != nil {
 		return "", err
 	}
-	x := 18 + int(b[0])%2
-	y := int(b[1])
-	z := int(b[2]) &^ 3
-	return fmt.Sprintf("198.%d.%d.%d/30", x, y, z+1), nil
+	base := network.IP.To4()
+	offset := (uint32(pick[0])<<24 | uint32(pick[1])<<16 | uint32(pick[2])<<8 | uint32(pick[3])) % uint32(blocks)
+	value := binary.BigEndian.Uint32(base) + offset*4
+	local := make(net.IP, net.IPv4len)
+	binary.BigEndian.PutUint32(local, value+1)
+	return fmt.Sprintf("%s/30", local), nil
 }
 
 // RandomID returns a random node id for one side of a link.

@@ -11,7 +11,10 @@
 # themselves run as NODE_USER with CAP_NET_ADMIN, because one instance lock per
 # host keeps two nodes in two namespaces apart.
 #
-# Usage: sudo scripts/e2e-overlay.sh
+# Usage: sudo scripts/e2e-overlay.sh [--subnet CIDR]
+#   --subnet CIDR  take the overlay link from this network, e.g. 10.99.0.0/24.
+#                  Use it when a VPN or another network already holds the
+#                  default range.
 
 set -euo pipefail
 
@@ -23,20 +26,28 @@ V4_A=10.200.0.1
 V4_Z=10.200.0.2
 RUN_DIR=/tmp/ens-e2e
 ACCEPT_TIMEOUT=90
+SUBNET=""
 NODE_USER="${NODE_USER:-$(stat -c %U .)}"
 NODE_UID=$(id -u "$NODE_USER")
 NODE_GID=$(id -g "$NODE_USER")
 
 [ "$(id -u)" = 0 ] || { echo "run this as root" >&2; exit 2; }
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --subnet)
+      [ $# -ge 2 ] || { echo "--subnet needs a network, e.g. --subnet 10.99.0.0/24" >&2; exit 2; }
+      SUBNET="$2"
+      shift 2
+      ;;
+    --subnet=*) SUBNET="${1#--subnet=}"; shift ;;
+    *) echo "unknown argument: $1" >&2; exit 2 ;;
+  esac
+done
+
 for tool in ip ping setpriv; do
   command -v "$tool" >/dev/null || { echo "missing tool: $tool" >&2; exit 2; }
 done
 [ -c /dev/net/tun ] || { echo "missing /dev/net/tun" >&2; exit 2; }
-for arg in "$@"; do
-  echo "unknown argument: $arg" >&2
-  exit 2
-done
-
 log() { printf '\n=== %s\n' "$*"; }
 
 for ns in "$NS_A" "$NS_Z"; do
@@ -90,8 +101,10 @@ ip -n "$NS_A" link set "$LINK_A" up
 ip -n "$NS_Z" link set "$LINK_Z" up
 ip netns exec "$NS_A" ping -c1 -W2 "$V4_Z" >/dev/null && echo "veth path works between the namespaces"
 
-log "node A invites"
-node "$NS_A" "$RUN_DIR/a" "$RUN_DIR/ens" invite \
+log "node A invites${SUBNET:+ from ${SUBNET}}"
+invite_args=()
+[ -n "$SUBNET" ] && invite_args=(--subnet "$SUBNET")
+node "$NS_A" "$RUN_DIR/a" "$RUN_DIR/ens" invite "${invite_args[@]}" \
   >"$RUN_DIR/invite.out" 2>"$RUN_DIR/invite.err" &
 for _ in $(seq 1 100); do
   grep -q 'ens accept' "$RUN_DIR/invite.out" 2>/dev/null && break
@@ -119,6 +132,31 @@ log "path in use"
 path=$(grep -h "path " "$RUN_DIR"/*.err | sed 's/.*path //' | sort -u | paste -sd, -)
 echo "  ${path:-unknown}"
 [ "${path:-}" = quic ] || echo "  note: expected quic over the veth pair"
+
+if [ -n "$SUBNET" ]; then
+  # The address itself is the check: it must be the one the node was told to
+  # use, and the node's own kernel must route it without leaving the host.
+  # A point-to-point TUN keeps that address on the local route, so accept both.
+  routed=$(ip netns exec "$NS_A" ip -4 route get "$overlay_a" 2>/dev/null | head -1)
+  case "$routed" in
+    *"src $overlay_a"*)
+      case "$routed" in
+        *"dev enserie"*|*"dev lo"*) ;;
+        *)
+          echo "overlay ${overlay_a} is routed off-host as ${SUBNET}" >&2
+          echo "  ${routed}" >&2
+          exit 1
+          ;;
+      esac
+      ;;
+    *)
+      echo "overlay ${overlay_a} is not routed as ${SUBNET}" >&2
+      echo "  ${routed:-no route}" >&2
+      exit 1
+      ;;
+  esac
+  echo "  overlay ${overlay_a} sits in the requested ${SUBNET}"
+fi
 
 log "ping A -> Z"
 ip netns exec "$NS_A" ping -c3 -W3 "$overlay_z"

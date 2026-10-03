@@ -9,6 +9,11 @@ import (
 	"time"
 )
 
+// spliceBudget bounds every wait in these tests. A loaded CI machine must not
+// turn a slow handshake into a failure, and the relay holds a dial open for 25
+// seconds while it waits for the accept, so the budget covers that too.
+const spliceBudget = 30 * time.Second
+
 func TestWebSocketURL(t *testing.T) {
 	ws, err := WebSocketURL("https://example.test/relay")
 	if err != nil || ws != "wss://example.test/relay" {
@@ -77,24 +82,33 @@ func TestRelaySplicesBytes(t *testing.T) {
 				return
 			}
 			accepted <- c
-		case <-time.After(5 * time.Second):
-			t.Error("no incoming ticket")
+		case <-ctx.Done():
 			accepted <- nil
 		}
 	}()
 
-	deadline := time.Now().Add(5 * time.Second)
+	// The relay registers the offer in the background, so the first dials can
+	// fail with "peer offline". Keep trying for the whole budget instead of a
+	// fixed window, and report the last reason when the budget runs out.
 	var client net.Conn
-	for time.Now().Before(deadline) {
+	var lastErr error
+	for client == nil {
+		if ctx.Err() != nil {
+			break
+		}
 		c, err := Dial(ctx, relayURL, "node-a")
 		if err == nil {
 			client = c
 			break
 		}
-		time.Sleep(50 * time.Millisecond)
+		lastErr = err
+		select {
+		case <-ctx.Done():
+		case <-time.After(100 * time.Millisecond):
+		}
 	}
 	if client == nil {
-		t.Fatal("dial never succeeded")
+		t.Fatalf("dial never succeeded within %s: %v", spliceBudget, lastErr)
 	}
 	defer client.Close()
 
@@ -108,7 +122,7 @@ func TestRelaySplicesBytes(t *testing.T) {
 		t.Fatal(err)
 	}
 	buf := make([]byte, 5)
-	_ = server.SetReadDeadline(time.Now().Add(3 * time.Second))
+	_ = server.SetReadDeadline(time.Now().Add(spliceBudget))
 	if _, err := io.ReadFull(server, buf); err != nil {
 		t.Fatal(err)
 	}

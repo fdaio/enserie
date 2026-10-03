@@ -27,7 +27,7 @@ func main() {
 		fmt.Println(version)
 	case "invite":
 		if err := maybeSupervise(runInvite); err != nil {
-			fmt.Fprintln(os.Stderr, err)
+			reportFailure(err)
 			os.Exit(1)
 		}
 	case "accept":
@@ -36,7 +36,7 @@ func main() {
 			os.Exit(2)
 		}
 		if err := maybeSupervise(func() error { return runAccept(os.Args[2]) }); err != nil {
-			fmt.Fprintln(os.Stderr, err)
+			reportFailure(err)
 			os.Exit(1)
 		}
 	case "down":
@@ -55,6 +55,16 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "       ens accept TOKEN")
 	fmt.Fprintln(os.Stderr, "       ens down")
 	fmt.Fprintln(os.Stderr, "       ens version")
+}
+
+// reportFailure prints err once. A worker that fails before the path is up
+// already sent the error over the status pipe, and the supervisor prints that
+// copy, so printing it in the worker as well showed the same failure twice.
+func reportFailure(err error) {
+	if isWorker() {
+		return
+	}
+	fmt.Fprintln(os.Stderr, err)
 }
 
 func runInvite() error {

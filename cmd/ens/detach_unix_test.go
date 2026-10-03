@@ -27,6 +27,42 @@ func TestMaybeSuperviseWorkerRunsFn(t *testing.T) {
 	}
 }
 
+// captureStderr collects what fn writes to os.Stderr.
+func captureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved := os.Stderr
+	os.Stderr = w
+	fn()
+	os.Stderr = saved
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	out, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = r.Close()
+	return string(out)
+}
+
+func TestReportFailurePrintsOnSupervisorOnly(t *testing.T) {
+	failure := fmtErr("tun/listen: operation not permitted (need root)")
+
+	t.Setenv(workerEnv, "")
+	if got := captureStderr(t, func() { reportFailure(failure) }); got != failure.Error()+"\n" {
+		t.Errorf("supervisor printed %q, want %q", got, failure.Error()+"\n")
+	}
+
+	t.Setenv(workerEnv, "1")
+	if got := captureStderr(t, func() { reportFailure(failure) }); got != "" {
+		t.Errorf("worker printed %q, want nothing", got)
+	}
+}
+
 func TestWaitConnectedSeesStatus(t *testing.T) {
 	r, w, err := os.Pipe()
 	if err != nil {

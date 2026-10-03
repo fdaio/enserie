@@ -70,6 +70,20 @@ func (h *Hub) handleOffer(conn net.Conn, msg Msg) {
 		return
 	}
 	o := &offer{daemonID: id, control: conn}
+
+	// Ack first, and under the lock that the ticket write takes. The client
+	// reads its ack as the first message and drops anything else, so a ticket
+	// that overtakes the ack tears the offer down and the dial then waits out
+	// its whole window for a peer that never heard of it.
+	o.writeMu.Lock()
+	err := WriteMsg(conn, Msg{Type: TypeOK})
+	o.writeMu.Unlock()
+	if err != nil {
+		return
+	}
+
+	// Publish only after the ack is on the wire, so that no dial can pick
+	// this offer up before the client knows it is registered.
 	h.mu.Lock()
 	if old, ok := h.offers[id]; ok {
 		_ = old.control.Close()
@@ -83,9 +97,6 @@ func (h *Hub) handleOffer(conn net.Conn, msg Msg) {
 		}
 		h.mu.Unlock()
 	}()
-	if err := WriteMsg(conn, Msg{Type: TypeOK}); err != nil {
-		return
-	}
 	buf := make([]byte, 1)
 	for {
 		_ = conn.SetReadDeadline(time.Now().Add(120 * time.Second))
@@ -124,6 +135,18 @@ func (h *Hub) handleDial(conn net.Conn, msg Msg) {
 		h.mu.Unlock()
 		close(pd.finished)
 	}()
+
+	// The offering node reconnects on its own schedule, and a new offer for
+	// the same id closes the connection that this ticket would travel on. Fail
+	// now so that the dialer retries at once instead of waiting out the
+	// window for an accept that can no longer come.
+	h.mu.Lock()
+	stillOffered := h.offers[peer] == o
+	h.mu.Unlock()
+	if !stillOffered {
+		_ = WriteMsg(conn, Msg{Type: TypeError, Error: "peer offline"})
+		return
+	}
 
 	o.writeMu.Lock()
 	err := WriteMsg(o.control, Msg{

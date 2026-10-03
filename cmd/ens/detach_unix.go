@@ -10,7 +10,9 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"strings"
 	"syscall"
+	"time"
 
 	"golang.org/x/sys/unix"
 )
@@ -18,6 +20,7 @@ import (
 const (
 	workerEnv       = "ENSERIE_WORKER"
 	statusConnected = "connected"
+	statusErrorPref = "error: "
 	statusFD        = 3
 )
 
@@ -27,7 +30,11 @@ func isWorker() bool {
 
 func maybeSupervise(run func() error) error {
 	if isWorker() {
-		return run()
+		if err := run(); err != nil {
+			reportError(err)
+			return err
+		}
+		return nil
 	}
 	return superviseWorker()
 }
@@ -82,8 +89,13 @@ func waitConnected(ctx context.Context, r io.Reader, waitCh <-chan error, kill f
 	go func() {
 		sc := bufio.NewScanner(r)
 		for sc.Scan() {
-			if sc.Text() == statusConnected {
+			line := sc.Text()
+			if line == statusConnected {
 				lines <- struct{}{}
+				return
+			}
+			if msg, ok := strings.CutPrefix(line, statusErrorPref); ok {
+				readErr <- fmt.Errorf("ens worker failed: %s", msg)
 				return
 			}
 		}
@@ -106,7 +118,21 @@ func waitConnected(ctx context.Context, r io.Reader, waitCh <-chan error, kill f
 		case <-lines:
 			return nil
 		case err := <-readErr:
-			return fmt.Errorf("ens worker status: %w", err)
+			if err != io.EOF {
+				return err
+			}
+			// The worker closed the status pipe without saying why.
+			// Give its exit status a moment to arrive so we can
+			// report the real cause instead of a bare EOF.
+			select {
+			case werr := <-waitCh:
+				if werr != nil {
+					return fmt.Errorf("ens worker exited: %w", werr)
+				}
+				return fmt.Errorf("ens worker exited before connect")
+			case <-time.After(3 * time.Second):
+				return fmt.Errorf("ens worker status pipe closed before connected")
+			}
 		}
 	}
 }
@@ -117,6 +143,16 @@ func notifyConnected() {
 		return
 	}
 	_, _ = fmt.Fprintln(f, statusConnected)
+	_ = f.Close()
+}
+
+// reportError tells the supervisor why the worker failed before connecting.
+func reportError(err error) {
+	f := os.NewFile(uintptr(statusFD), "ens-status")
+	if f == nil {
+		return
+	}
+	_, _ = fmt.Fprintln(f, statusErrorPref+err.Error())
 	_ = f.Close()
 }
 

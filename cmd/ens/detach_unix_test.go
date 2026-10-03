@@ -94,6 +94,49 @@ type fmtErr string
 
 func (e fmtErr) Error() string { return string(e) }
 
+func TestWaitConnectedSurfacesWorkerErrorLine(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = r.Close(); _ = w.Close() })
+	waitCh := make(chan error, 1)
+	done := make(chan error, 1)
+	go func() {
+		done <- waitConnected(context.Background(), r, waitCh, func() error { return nil })
+	}()
+	if _, err := io.WriteString(w, statusErrorPref+"ens already running\n"); err != nil {
+		t.Fatal(err)
+	}
+	_ = w.Close()
+	err = <-done
+	if err == nil || !strings.Contains(err.Error(), "ens already running") {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestWaitConnectedEOFPrefersExitError(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = r.Close(); _ = w.Close() })
+	waitCh := make(chan error, 1)
+	done := make(chan error, 1)
+	go func() {
+		done <- waitConnected(context.Background(), r, waitCh, func() error { return nil })
+	}()
+	_ = w.Close()
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		waitCh <- fmtErr("exit status 1")
+	}()
+	err = <-done
+	if err == nil || !strings.Contains(err.Error(), "exit status 1") {
+		t.Fatalf("got %v", err)
+	}
+}
+
 func TestReadWorkerPIDMissing(t *testing.T) {
 	testLockPath = filepath.Join(t.TempDir(), "missing.lock")
 	t.Cleanup(func() { testLockPath = "" })

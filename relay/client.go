@@ -108,6 +108,8 @@ func offerOnce(ctx context.Context, relayURL, nodeID string, onTicket func(ticke
 	}
 }
 
+// Accept claims the ticket of a waiting dial and returns the spliced
+// connection.
 func Accept(ctx context.Context, relayURL, ticket string) (net.Conn, error) {
 	conn, err := dialRelay(ctx, relayURL)
 	if err != nil {
@@ -137,11 +139,17 @@ func Accept(ctx context.Context, relayURL, ticket string) (net.Conn, error) {
 	return conn, nil
 }
 
+// DialResult is a spliced connection and what the relay saw of the dialer.
 type DialResult struct {
-	Conn     net.Conn
+	// Conn is the connection to the peer.
+	Conn net.Conn
+	// Observed is the address that the relay saw for this end. It is empty
+	// when the relay cannot determine one.
 	Observed string
 }
 
+// Dial asks the relay for a peer and returns the spliced connection. It fails
+// at once when the peer has no offer on this relay.
 func Dial(ctx context.Context, relayURL, peerID string) (net.Conn, error) {
 	res, err := DialDetailed(ctx, relayURL, peerID)
 	if err != nil {
@@ -150,6 +158,7 @@ func Dial(ctx context.Context, relayURL, peerID string) (net.Conn, error) {
 	return res.Conn, nil
 }
 
+// DialDetailed is Dial and also reports the address that the relay observed.
 func DialDetailed(ctx context.Context, relayURL, peerID string) (DialResult, error) {
 	conn, err := dialRelay(ctx, relayURL)
 	if err != nil {

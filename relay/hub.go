@@ -32,6 +32,7 @@ type Hub struct {
 	tickets map[string]*pendingDial
 }
 
+// NewHub returns a hub that holds no offer.
 func NewHub() *Hub {
 	return &Hub{
 		offers:  make(map[string]*offer),
@@ -39,6 +40,9 @@ func NewHub() *Hub {
 	}
 }
 
+// Handle serves one client connection. It reads a single control message and
+// acts on it, and it returns once that message has been dealt with, which for
+// an offer means once the rendezvous ended.
 func (h *Hub) Handle(conn net.Conn) {
 	defer conn.Close()
 	_ = conn.SetDeadline(time.Now().Add(30 * time.Second))

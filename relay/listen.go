@@ -8,6 +8,8 @@ import (
 	"github.com/coder/websocket"
 )
 
+// ListenAndServe starts a relay on addr. It returns the bound address and a
+// function that closes the server.
 func ListenAndServe(addr string) (net.Addr, func() error, error) {
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -28,6 +30,9 @@ func ListenAndServe(addr string) (net.Addr, func() error, error) {
 	return ln.Addr(), srv.Close, nil
 }
 
+// Handler returns the handler that upgrades a request to a WebSocket and
+// serves it with the hub. A plain GET returns a text banner, so a wrong URL
+// answers with readable text instead of a failed upgrade.
 func (h *Hub) Handler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet && r.Header.Get("Upgrade") == "" {

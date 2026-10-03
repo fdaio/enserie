@@ -12,26 +12,44 @@ import (
 	"strings"
 )
 
+// MaxMsg caps one control message. ReadMsg reads the length before the body,
+// so the cap keeps a wrong length from reserving memory for it.
 const MaxMsg = 64 << 10
 
 const (
-	TypeOffer    = "offer"
-	TypeDial     = "dial"
-	TypeAccept   = "accept"
+	// TypeOffer registers a long-lived rendezvous for DaemonID.
+	TypeOffer = "offer"
+	// TypeDial asks the relay for a peer and waits for a ticket.
+	TypeDial = "dial"
+	// TypeAccept claims the ticket of a waiting dial.
+	TypeAccept = "accept"
+	// TypeIncoming hands a ticket to the node that offered.
 	TypeIncoming = "incoming"
-	TypeOK       = "ok"
-	TypeError    = "error"
+	// TypeOK acknowledges an offer, a dial, or an accept.
+	TypeOK = "ok"
+	// TypeError reports a failure and puts the reason in Error.
+	TypeError = "error"
 )
 
+// Msg is one control message. The relay reads the type and uses the fields
+// that the type needs.
 type Msg struct {
-	Type     string `json:"type"`
+	// Type is one of the Type constants.
+	Type string `json:"type"`
+	// DaemonID names the node that offers a rendezvous.
 	DaemonID string `json:"daemon_id,omitempty"`
-	PeerID   string `json:"peer_id,omitempty"`
-	Ticket   string `json:"ticket,omitempty"`
-	Error    string `json:"error,omitempty"`
+	// PeerID names the node that a dial asks for.
+	PeerID string `json:"peer_id,omitempty"`
+	// Ticket identifies one waiting dial.
+	Ticket string `json:"ticket,omitempty"`
+	// Error carries the reason of a TypeError message.
+	Error string `json:"error,omitempty"`
+	// Observed is the address that the relay saw for the other end. It is
+	// empty when the relay cannot determine one.
 	Observed string `json:"observed,omitempty"`
 }
 
+// WriteMsg writes one control message with a length prefix.
 func WriteMsg(w io.Writer, m Msg) error {
 	b, err := json.Marshal(m)
 	if err != nil {
@@ -49,6 +67,8 @@ func WriteMsg(w io.Writer, m Msg) error {
 	return err
 }
 
+// ReadMsg reads one control message. It reports a readable error when the peer
+// answered with an HTTP page instead of opening a WebSocket.
 func ReadMsg(r io.Reader) (Msg, error) {
 	var hdr [4]byte
 	if _, err := io.ReadFull(r, hdr[:]); err != nil {

@@ -6,19 +6,15 @@ Two machines share an IPv4 `/30` and reach each other as if they were on a LAN.
 Direct QUIC is preferred. When NAT blocks it, a blind WebSocket relay splices
 the path. Overlay packets stay inside TLS 1.3.
 
-```
-go get github.com/fdaio/enserie
-```
-
 ## Install
 
-GitHub Releases ship Ubuntu `.deb` files and macOS tarballs. Use v0.2.6 or
+GitHub Releases ship Ubuntu `.deb` files and macOS tarballs. Use v0.2.7 or
 later for background `ens invite`.
 
 Ubuntu / Debian (amd64 or arm64):
 
 ```bash
-ver=0.2.6
+ver=0.2.7
 arch=$(dpkg --print-architecture)
 curl -fsSL -o ens.deb \
   "https://github.com/fdaio/enserie/releases/download/v${ver}/ens_${ver}_${arch}.deb"
@@ -29,7 +25,7 @@ ens version
 macOS (replace `arm64` with `amd64` on Intel):
 
 ```bash
-ver=0.2.6
+ver=0.2.7
 curl -fsSL "https://github.com/fdaio/enserie/releases/download/v${ver}/ens-darwin-arm64.tar.gz" | tar -xz
 sudo install -m 755 ens /usr/local/bin/ens
 ens version
@@ -62,11 +58,120 @@ The worker keeps the TUN. `sudo ens down` stops it. Later path logs go to
 
 When the path is up, `ping` the overlay IP printed on the other side.
 
+## Use as a library
+
+Three packages, one job each. `overlay` runs the node, `transport` carries QUIC
+and certificates, `relay` serves a splice of your own. `go get` on its own
+starts nothing: your program owns the process, the certificates, and the
+pairing, so it does the work that `ens` does around the node.
+
+```bash
+go get github.com/fdaio/enserie@v0.2.7
+```
+
+### Pairing
+
+Pairing is the same out-of-band token exchange that `ens invite` prints. The
+inviting node only listens and offers, so it must not dial. The accepting node
+dials, even when its own id sorts first.
+
+The snippets skip the errors that the generators cannot fail on. Check the rest.
+
+```go
+// Inviting node.
+id, _ := overlay.RandomID()
+secret, _ := overlay.RandomSecret()
+link, _ := overlay.RandomLink() // e.g. 10.7.0.1/30
+peerCIDR, _ := overlay.OtherCIDR(link)
+peerIP, _, _ := net.ParseCIDR(peerCIDR) // 10.7.0.2
+_, prefix, _ := net.ParseCIDR(link)
+cert, _ := transport.EnsureServerCert("tls.crt", "tls.key")
+fp, _ := transport.CertFingerprint(cert)
+
+n, err := overlay.New(overlay.Config{
+	ID:     id,
+	CIDR:   link,
+	Cert:   cert,
+	Listen: "0.0.0.0:0",
+	Relays: overlay.DefaultRelayURLs(),
+	Peer:   overlay.Peer{IP: peerIP},
+	Secret: secret,
+	Invite: true,
+})
+if err != nil {
+	log.Fatal(err)
+}
+if err := n.Start(ctx); err != nil { // opens a TUN: needs root or CAP_NET_ADMIN
+	log.Fatal(err)
+}
+defer n.Close()
+
+token, _ := overlay.Invite{
+	V:      1,
+	ID:     id,
+	FP:     fp,
+	CIDR:   link,
+	Addrs:  overlay.FilterOverlayAddrs(transport.ExpandCandidates(n.ListenAddr(), ""), prefix),
+	Secret: secret,
+}.Encode()
+fmt.Println("share with the peer:", token)
+```
+
+```go
+// Accepting node.
+inv, err := overlay.ParseInvite(token)
+if err != nil {
+	log.Fatal(err)
+}
+link, _ := overlay.OtherCIDR(inv.CIDR)
+peerIP, _, _ := net.ParseCIDR(inv.CIDR)
+id, _ := overlay.RandomID()
+cert, _ := transport.EnsureServerCert("tls.crt", "tls.key")
+
+n, err := overlay.New(overlay.Config{
+	ID:         id,
+	CIDR:       link,
+	Cert:       cert,
+	Listen:     "0.0.0.0:0",
+	Relays:     inv.Relays,
+	Peer:       overlay.Peer{ID: inv.ID, IP: peerIP, CertFP: inv.FP, Candidates: inv.Addrs},
+	Secret:     inv.Secret,
+	AlwaysDial: true,
+})
+if err != nil {
+	log.Fatal(err)
+}
+if err := n.Start(ctx); err != nil {
+	log.Fatal(err)
+}
+defer n.Close()
+
+for n.Path() == "" { // quic first, relay when QUIC cannot complete
+	time.Sleep(200 * time.Millisecond)
+}
+fmt.Println("peer overlay IP:", n.PeerIP())
+```
+
+### What the token carries
+
+The token is base64 JSON. Peers pin each other by certificate fingerprint, so
+the token carries the fingerprint and the shared secret. `ParseInvite` rejects a
+wrong version or a missing field, and fills `Relays` with the hosted splices
+when the token omits them.
+
+- `n.Path()` reports `transport.KindQUIC` or `transport.KindRelay` once a path is up.
+- `n.ListenAddr()` plus `transport.ExpandCandidates` give the addresses to share.
+- `Config.Device` takes a packet source and sink, so a test can run without a
+  TUN. `Node.WaitPacket` only reads the memory device in this package, so it
+  stays inside these tests.
+- `ens` adds what the library leaves to you: one instance per host
+  (`/run/ens.lock`), a background worker with a pid, and `/run/ens.log`.
+
 ## Build
 
 ```bash
 make test
 make build
-make dist-linux VERSION=0.2.6
-make dist-darwin VERSION=0.2.6
+make dist-linux VERSION=0.2.7
+make dist-darwin VERSION=0.2.7
 ```

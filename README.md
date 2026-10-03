@@ -154,10 +154,11 @@ fmt.Println("peer overlay IP:", n.PeerIP())
 
 ### What the token carries
 
-The token is base64 JSON. Peers pin each other by certificate fingerprint, so
-the token carries the fingerprint and the shared secret. `ParseInvite` rejects a
-wrong version or a missing field, and fills `Relays` with the hosted splices
-when the token omits them.
+The token is base64 JSON. The accepting node pins the inviter by the
+fingerprint in the token. The inviter authenticates the accepting node by the
+shared secret, because it cannot know a fingerprint in advance.
+`ParseInvite` rejects a wrong version or a missing field, and fills `Relays`
+with the hosted splices when the token omits them.
 
 - `n.Path()` reports `transport.KindQUIC` or `transport.KindRelay` once a path is up.
 - `n.ListenAddr()` plus `transport.ExpandCandidates` give the addresses to share.

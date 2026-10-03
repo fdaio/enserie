@@ -1,3 +1,11 @@
+// Package overlay runs one end of a two-node overlay link.
+//
+// Two nodes take the two addresses of an IPv4 /30 and reach each other as if
+// they were on a LAN. New checks the pairing. Start opens the TUN, listens,
+// offers to the relays, and dials the peer. Close stops the node.
+//
+// A program pairs the two nodes itself. The token in this package is the same
+// token that `ens invite` prints.
 package overlay
 
 import (
@@ -17,22 +25,40 @@ import (
 
 // Peer is the other end of a /30 (or larger) overlay link.
 type Peer struct {
-	ID         string
-	IP         net.IP
-	CertFP     string
+	// ID is the peer node id. An invite node learns it from the first hello
+	// and leaves it empty.
+	ID string
+	// IP is the peer overlay address. It must sit in the same prefix as
+	// Config.CIDR and differ from the local address.
+	IP net.IP
+	// CertFP is the peer certificate fingerprint in hex. An invite node
+	// cannot know it beforehand, so it accepts any non-empty one.
+	CertFP string
+	// Candidates are dial targets, tried in the given order.
 	Candidates []string
+	// ForceRelay skips QUIC and dials a relay instead.
 	ForceRelay bool
 }
 
+// Config describes one node and the peer it must reach.
 type Config struct {
-	ID     string
-	CIDR   string // local overlay address, e.g. 10.7.0.1/30
-	Cert   tls.Certificate
-	Listen string // QUIC listen, default 0.0.0.0:0
+	// ID is this node id. It must differ from Peer.ID.
+	ID string
+	// CIDR is the local overlay address, e.g. 10.7.0.1/30.
+	CIDR string
+	// Cert is this node certificate. The peer pins it by fingerprint.
+	Cert tls.Certificate
+	// Listen is the QUIC listen address, default 0.0.0.0:0.
+	Listen string
+	// Relays are the relay URLs to offer to and to dial. An empty entry or
+	// "off" is skipped, and an empty list leaves QUIC as the only path.
 	Relays []string
-	Peer   Peer
-	Device Device // nil opens a real TUN
-	Secret string // shared invite secret; empty skips the check
+	// Peer describes the other end.
+	Peer Peer
+	// Device is the packet source and sink. Nil opens a real TUN.
+	Device Device
+	// Secret is the shared invite secret; empty skips the check.
+	Secret string
 	// Invite listens and offers. It does not dial. The first hello with
 	// a matching secret becomes the peer.
 	Invite bool
@@ -40,6 +66,7 @@ type Config struct {
 	AlwaysDial bool
 }
 
+// Node is one overlay node. Create it with New and run it with Start.
 type Node struct {
 	cfg      Config
 	local    net.IP
@@ -53,6 +80,7 @@ type Node struct {
 	wg       sync.WaitGroup
 }
 
+// New checks the pairing and returns a node that is not running yet.
 func New(cfg Config) (*Node, error) {
 	if cfg.ID == "" {
 		return nil, fmt.Errorf("node id required")
@@ -94,9 +122,13 @@ func New(cfg Config) (*Node, error) {
 	return &Node{cfg: cfg, local: local, prefix: prefix}, nil
 }
 
+// LocalIP is the overlay address of this node.
 func (n *Node) LocalIP() net.IP { return n.local }
-func (n *Node) PeerIP() net.IP  { return n.cfg.Peer.IP }
 
+// PeerIP is the overlay address of the peer.
+func (n *Node) PeerIP() net.IP { return n.cfg.Peer.IP }
+
+// DeviceName is the interface name of the device. It is empty until Start.
 func (n *Node) DeviceName() string {
 	if n.dev == nil {
 		return ""
@@ -104,12 +136,15 @@ func (n *Node) DeviceName() string {
 	return n.dev.Name()
 }
 
+// Path reports the transport that carries the peer connection. It stays empty
+// until the peer is connected.
 func (n *Node) Path() transport.Kind {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	return n.peerKind
 }
 
+// ListenAddr is the address the QUIC listener bound. It is empty until Start.
 func (n *Node) ListenAddr() string {
 	if n.ln == nil {
 		return ""
@@ -117,6 +152,9 @@ func (n *Node) ListenAddr() string {
 	return n.ln.Addr().String()
 }
 
+// Start opens the device and the QUIC listener, offers to the relays, and then
+// moves packets between the device and the peer. It needs root or CAP_NET_ADMIN
+// unless Config.Device is set, and it returns as soon as the node runs.
 func (n *Node) Start(ctx context.Context) error {
 	ctx, n.cancel = context.WithCancel(ctx)
 	if n.cfg.Device != nil {
@@ -175,6 +213,8 @@ func (n *Node) Start(ctx context.Context) error {
 	return nil
 }
 
+// Close drops the peer, closes the device, and waits for the background work.
+// It also stops a node whose Start returned an error.
 func (n *Node) Close() error {
 	if n.cancel != nil {
 		n.cancel()
@@ -478,6 +518,7 @@ func (n *Node) dropPeer() {
 	}
 }
 
+// Inject writes a packet as if the local stack had written it to the device.
 func (n *Node) Inject(pkt []byte) error {
 	if n.dev == nil {
 		return io.ErrClosedPipe
@@ -490,6 +531,8 @@ func (n *Node) Inject(pkt []byte) error {
 	return err
 }
 
+// WaitPacket returns the next packet that the peer sent. It only reads the
+// memory device of this package, so it stays inside its tests.
 func (n *Node) WaitPacket(timeout time.Duration) ([]byte, error) {
 	if inj, ok := n.dev.(*memDevice); ok {
 		return inj.waitRemote(timeout)

@@ -6,6 +6,9 @@ Two machines share an IPv4 `/30` and reach each other as if they were on a LAN.
 Direct QUIC is preferred. When NAT blocks it, a blind WebSocket relay splices
 the path. Overlay packets stay inside TLS 1.3.
 
+`docs/protocol.md` describes the pairing, the token, both paths, and the trust
+boundaries. `SECURITY.md` describes what the token does and does not protect.
+
 ## Install
 
 GitHub Releases ship Ubuntu `.deb` files and macOS tarballs. The snippets below
@@ -76,6 +79,22 @@ The packet never reaches the interface, so `ping` shows no reply and the TUN
 counters stay flat. Check it with `ip route get <peer overlay IP>`: the answer
 must name the TUN, such as `enserie0`, and not a tunnel. Passing `--subnet` with
 a range the VPN does not claim is the way out.
+
+### Known limits
+
+Overlay packets travel in an ordered QUIC stream, not in datagrams. One lost
+segment therefore holds up the packets behind it, and the inner IP layer and
+the QUIC layer both run congestion control. That is fine for a command line
+between two machines, and it costs throughput on a busy or lossy path. QUIC
+datagrams would remove both effects and are the natural change if that matters.
+
+The interface MTU is fixed at 1280, chosen to avoid fragmentation on the
+underlay. The relay caps a control message at 64 KiB.
+
+A path is chosen once per connection and does not change afterwards. A link that
+starts on the relay stays on the relay even after the network stops blocking
+direct QUIC, because the node keeps the first peer it accepted rather than
+migrating to a second one.
 
 ## Use as a library
 

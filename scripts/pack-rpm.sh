@@ -67,6 +67,17 @@ RELEASE=1
 # keeps the spec valid whatever day the release runs.
 CHANGELOG_DATE=$(date -u '+%a %b %d %Y')
 
+# Version must be [0-9.] plus letters, and a dash is illegal, so a prerelease
+# tag such as v0.3.0-rc1 cannot be packed. Say so here, because the failure
+# rpmbuild reports otherwise names the spec rather than the tag.
+case "$VERSION" in
+*[!0-9a-zA-Z.]* | '' | .* | *..* | *.)
+	echo "rpm cannot use version $VERSION: only digits, letters, and dots are allowed" >&2
+	echo "  a prerelease tag such as v0.3.0-rc1 needs the dash dropped" >&2
+	exit 2
+	;;
+esac
+
 cat >"$TOP/ens.spec" <<EOF
 Name:           $PACKAGE
 Version:        $VERSION

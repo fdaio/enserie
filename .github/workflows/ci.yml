@@ -46,18 +46,20 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y dpkg-dev rpm
+      # rpm rejects a dash in Version, so a version like 0.0.0-ci cannot be
+      # packed. That is worth knowing here rather than on a tag.
       - name: Package
-        run: make dist-linux dist-rpm VERSION=0.0.0-ci
+        run: make dist-linux dist-rpm VERSION=0.0.0ci
       - name: Inspect packages
         run: |
           set -eu
-          dpkg-deb -c dist/ens_0.0.0-ci_*.deb | grep -q usr/bin/ens
+          dpkg-deb -c dist/ens_0.0.0ci_*.deb | grep -q usr/bin/ens
           case "$(uname -m)" in
           x86_64) arch=amd64 ;;
           aarch64) arch=arm64 ;;
           *) echo "unknown runner arch: $(uname -m)" >&2; exit 1 ;;
           esac
-          rpm -qp --qf '%{ARCH} %{FILENAMES}\n' "dist/ens_0.0.0-ci_$arch.rpm" \
+          rpm -qp --qf '%{ARCH} %{FILENAMES}\n' "dist/ens_0.0.0ci_$arch.rpm" \
             | grep -qx "$([ "$arch" = amd64 ] && echo x86_64 || echo aarch64) /usr/bin/ens"
           tar -tzf dist/ens-linux-$arch.tar.gz | grep -qx ens
 

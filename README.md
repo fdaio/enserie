@@ -11,8 +11,42 @@ boundaries. `SECURITY.md` describes what the token does and does not protect.
 
 ## Install
 
-GitHub Releases ship Ubuntu `.deb` files and macOS tarballs. The snippets below
-install v0.2.9; background `ens invite` needs v0.2.6 or later.
+GitHub Releases ship packages for both platforms. The snippets below install
+v0.2.9; background `ens invite` needs v0.2.6 or later.
+
+Every package installs the client only. The relay is separate, and you need it
+only if you run your own splice.
+
+macOS, with Homebrew:
+
+```bash
+brew tap fdaio/enserie
+brew install fdaio/enserie/ens
+ens version
+```
+
+macOS, from the installer package (double-click also works):
+
+```bash
+ver=0.2.9
+case $(uname -m) in
+arm64) pkg_arch=arm64 ;;
+x86_64) pkg_arch=amd64 ;;
+esac
+curl -fsSL -o ens.pkg \
+  "https://github.com/fdaio/enserie/releases/download/v${ver}/ens_${ver}_${pkg_arch}.pkg"
+sudo installer -pkg ens.pkg -target /
+ens version
+```
+
+macOS, from the tarball (replace `arm64` with `amd64` on Intel):
+
+```bash
+ver=0.2.9
+curl -fsSL "https://github.com/fdaio/enserie/releases/download/v${ver}/ens-darwin-arm64.tar.gz" | tar -xz
+sudo install -m 755 ens /usr/local/bin/ens
+ens version
+```
 
 Ubuntu / Debian (amd64 or arm64):
 
@@ -25,18 +59,60 @@ sudo dpkg -i ens.deb
 ens version
 ```
 
-macOS (replace `arm64` with `amd64` on Intel):
+Fedora, RHEL, openSUSE (amd64 or arm64):
 
 ```bash
 ver=0.2.9
-curl -fsSL "https://github.com/fdaio/enserie/releases/download/v${ver}/ens-darwin-arm64.tar.gz" | tar -xz
+arch=$(uname -m)   # x86_64 or aarch64
+case "$arch" in
+x86_64) rpm_arch=amd64 ;;
+aarch64) rpm_arch=arm64 ;;
+esac
+curl -fsSL -o ens.rpm \
+  "https://github.com/fdaio/enserie/releases/download/v${ver}/ens_${ver}_${rpm_arch}.rpm"
+sudo dnf install -y ./ens.rpm || sudo rpm -i ens.rpm
+ens version
+```
+
+Any other Linux, from the tarball. The binary is statically linked, so it runs
+on Alpine and on distributions without a package of their own:
+
+```bash
+ver=0.2.9
+case $(uname -m) in
+x86_64 | amd64) goarch=amd64 ;;
+aarch64 | arm64) goarch=arm64 ;;
+esac
+curl -fsSL "https://github.com/fdaio/enserie/releases/download/v${ver}/ens-linux-${goarch}.tar.gz" | tar -xz
 sudo install -m 755 ens /usr/local/bin/ens
 ens version
 ```
 
+There is no Arch package. Arch is not Debian-based and the AUR is maintained by
+the community, so the tarball above is the route. Writing a PKGBUILD is one
+small file if you want to add it.
+
 TUN setup needs root (`CAP_NET_ADMIN`). Relay traffic reuses tyd's hosted
 splices (`relay-1.getfda.dev`, `relay-2.getfda.dev`). Pack `enserie-relay`
 only if you run your own splice.
+
+Verify a download against the release checksum before running it:
+
+```bash
+ver=0.2.9
+curl -fsSL -O "https://github.com/fdaio/enserie/releases/download/v${ver}/SHA256SUMS"
+shasum -a 256 -c SHA256SUMS
+```
+
+The file lists every asset, so check the ones you downloaded:
+
+```bash
+shasum -a 256 -c SHA256SUMS --ignore-missing
+```
+
+Read the output: `OK` per file is what you want. `--ignore-missing` skips the
+assets you did not download, and the exit code stays 0 as long as every file
+that *is* present matches.
 
 ## Commands
 

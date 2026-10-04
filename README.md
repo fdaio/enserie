@@ -9,12 +9,12 @@ the path. Overlay packets stay inside TLS 1.3.
 ## Install
 
 GitHub Releases ship Ubuntu `.deb` files and macOS tarballs. The snippets below
-install v0.2.8; background `ens invite` needs v0.2.6 or later.
+install v0.2.9; background `ens invite` needs v0.2.6 or later.
 
 Ubuntu / Debian (amd64 or arm64):
 
 ```bash
-ver=0.2.8
+ver=0.2.9
 arch=$(dpkg --print-architecture)
 curl -fsSL -o ens.deb \
   "https://github.com/fdaio/enserie/releases/download/v${ver}/ens_${ver}_${arch}.deb"
@@ -25,7 +25,7 @@ ens version
 macOS (replace `arm64` with `amd64` on Intel):
 
 ```bash
-ver=0.2.8
+ver=0.2.9
 curl -fsSL "https://github.com/fdaio/enserie/releases/download/v${ver}/ens-darwin-arm64.tar.gz" | tar -xz
 sudo install -m 755 ens /usr/local/bin/ens
 ens version
@@ -85,7 +85,7 @@ starts nothing: your program owns the process, the certificates, and the
 pairing, so it does the work that `ens` does around the node.
 
 ```bash
-go get github.com/fdaio/enserie@v0.2.8
+go get github.com/fdaio/enserie@v0.2.9
 ```
 
 ### Pairing
@@ -192,6 +192,6 @@ with the hosted splices when the token omits them.
 ```bash
 make test
 make build
-make dist-linux VERSION=0.2.8
-make dist-darwin VERSION=0.2.8
+make dist-linux VERSION=0.2.9
+make dist-darwin VERSION=0.2.9
 ```

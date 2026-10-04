@@ -178,5 +178,6 @@ the whole thing, and both sides are online at the same moment.
   `Config.Peer`, `Path()` and `peerConn` are all singular today.
 - No STUN, no simultaneous hole punching, no relay-to-direct migration.
 - No packet loss or throughput figures exist for either path.
-- The TUN layer exists for Linux and macOS. `overlay/tun_other.go` is a stub
-  that fails, so Windows and Android are not platforms yet.
+- Linux and macOS are the only platforms. `overlay/tun_other.go` is a stub that
+  fails on purpose, so a build for another operating system compiles and then
+  refuses to open a TUN instead of pretending to work.

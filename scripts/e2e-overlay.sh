@@ -7,14 +7,20 @@
 # forwarding, and the splice, none of which the unit tests reach.
 #
 # The nodes reach each other directly over the veth pair, so this exercises the
-# QUIC path. Run it as root: it creates namespaces and a veth pair. The nodes
-# themselves run as NODE_USER with CAP_NET_ADMIN, because one instance lock per
-# host keeps two nodes in two namespaces apart.
+# QUIC path only. The relay path has no such check, because the command line
+# takes no relay option and the default relays are hosted, so a check against
+# them would depend on someone else's uptime. Run it as root: it creates
+# namespaces and a veth pair. The nodes themselves run as NODE_USER with
+# CAP_NET_ADMIN, because one instance lock per host keeps two nodes in two
+# namespaces apart.
 #
 # Usage: sudo scripts/e2e-overlay.sh [--subnet CIDR]
 #   --subnet CIDR  take the overlay link from this network, e.g. 10.99.0.0/24.
 #                  Use it when a VPN or another network already holds the
 #                  default range.
+#
+# Set ENS_BIN to test a binary that is already built. CI uses this because
+# sudo drops the Go toolchain from PATH.
 
 set -euo pipefail
 
@@ -82,10 +88,16 @@ node() {
     env TMPDIR="$dir" "$@"
 }
 
-log "build"
 rm -rf "$RUN_DIR"
 mkdir -p "$RUN_DIR/a" "$RUN_DIR/z"
-go build -o "$RUN_DIR/ens" ./cmd/ens
+if [ -n "${ENS_BIN:-}" ]; then
+  log "use the prebuilt binary ${ENS_BIN}"
+  [ -x "$ENS_BIN" ] || { echo "ENS_BIN is not executable: ${ENS_BIN}" >&2; exit 2; }
+  cp "$ENS_BIN" "$RUN_DIR/ens"
+else
+  log "build"
+  go build -o "$RUN_DIR/ens" ./cmd/ens
+fi
 chown -R "$NODE_USER" "$RUN_DIR"
 
 log "namespaces and veth pair"

@@ -28,6 +28,24 @@ jobs:
       - name: Build
         run: go build ./cmd/ens ./cmd/enserie-relay
 
+  # The unit tests never open a TUN, so a relay handshake that arrives in the
+  # wrong order still passes them. This job runs two nodes in two network
+  # namespaces and requires a packet to cross the overlay in both directions.
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      # Build before sudo, because sudo resets PATH and the Go toolchain is not
+      # on the secure path.
+      - name: Build
+        run: go build -o "$RUNNER_TEMP/ens" ./cmd/ens
+      - name: End to end
+        run: sudo "ENS_BIN=$RUNNER_TEMP/ens" ./scripts/e2e-overlay.sh
+
   dist-linux:
     runs-on: ubuntu-latest
     steps:

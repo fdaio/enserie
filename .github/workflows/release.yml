@@ -32,12 +32,59 @@ jobs:
             echo "client deb must not contain enserie-relay" >&2
             exit 1
           fi
+          # The tar.gz has to carry the client, not only the relay. It used to
+          # be the relay alone, which left every distro without a deb with
+          # nothing to install.
+          tar -tzf dist/ens-linux-amd64.tar.gz | grep -qx ens
+          tar -tzf dist/ens-linux-arm64.tar.gz | grep -qx ens
       - uses: actions/upload-artifact@v4
         with:
           name: linux
           path: |
             dist/*.deb
+            dist/ens-linux-*.tar.gz
             dist/enserie-relay-linux-*.tar.gz
+
+  # Distro rpm knows only the host architecture, so a spec whose BuildArch is
+  # not the host one fails with "No compatible architectures found". There is
+  # no rpmbuild flag that changes that, so each rpm is built on a runner of its
+  # own architecture. ubuntu-24.04-arm is free for a public repository.
+  dist-rpm:
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Install rpmbuild
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rpm
+      - name: Package
+        run: make dist-rpm VERSION="${GITHUB_REF_NAME#v}" ARCH=${{ matrix.arch }}
+      - name: Inspect packages
+        run: |
+          set -eu
+          rpm -qip "dist/ens_${{ matrix.arch }}.rpm" 2>/dev/null || true
+          rpm -qp --qf '%{ARCH} %{NAME} %{VERSION}-%{RELEASE}\n' \
+            "dist/ens_${{ matrix.arch }}.rpm" > dist/rpm-arch.txt
+          cat dist/rpm-arch.txt
+          # The rpm has to name the architecture the job was for, or the
+          # runner matrix silently produced two identical packages.
+          grep -qx "${{ matrix.arch == 'amd64' && 'x86_64' || 'aarch64' }} ens ${GITHUB_REF_NAME#v}-1" dist/rpm-arch.txt
+          rpm -qp --qf '%{FILENAMES}\n' "dist/ens_${{ matrix.arch }}.rpm" | grep -qx /usr/bin/ens
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rpm-${{ matrix.arch }}
+          path: dist/ens_${{ matrix.arch }}.rpm
 
   dist-darwin:
     runs-on: macos-latest
@@ -55,15 +102,22 @@ jobs:
           tar -tzf dist/ens-darwin-arm64.tar.gz | grep -qx ens
           codesign -dv dist/darwin-arm64/ens 2>&1 | grep -qi adhoc
           dist/darwin-arm64/ens version
+          # The formula names this release's tarball, so a stale checksum or
+          # version here would only fail for whoever tries to install.
+          grep -q "v${GITHUB_REF_NAME#v}/ens-darwin-arm64.tar.gz" dist/ens.rb
+          grep -q "version \"${GITHUB_REF_NAME#v}\"" dist/ens.rb
+          grep -q "$(shasum -a 256 dist/ens-darwin-arm64.tar.gz | cut -d' ' -f1)" dist/ens.rb
       - uses: actions/upload-artifact@v4
         with:
           name: darwin
           path: |
             dist/ens-darwin-*.tar.gz
             dist/enserie-relay-darwin-*.tar.gz
+            dist/ens_*.pkg
+            dist/ens.rb
 
   publish:
-    needs: [dist-linux, dist-darwin]
+    needs: [dist-linux, dist-rpm, dist-darwin]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -81,5 +135,8 @@ jobs:
           generate_release_notes: true
           files: |
             dist/*.deb
+            dist/*.rpm
             dist/*.tar.gz
+            dist/*.pkg
+            dist/ens.rb
             dist/SHA256SUMS

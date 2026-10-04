@@ -33,6 +33,9 @@ jobs:
   # each one carries the client binary.
   packages:
     strategy:
+      # Each runner reports on its own architecture. Cancelling the sibling on
+      # the first failure hides one architecture's result behind the other's.
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, ubuntu-24.04-arm]
     runs-on: ${{ matrix.os }}
@@ -53,15 +56,21 @@ jobs:
       - name: Inspect packages
         run: |
           set -eu
-          dpkg-deb -c dist/ens_0.0.0ci_*.deb | grep -q usr/bin/ens
           case "$(uname -m)" in
-          x86_64) arch=amd64 ;;
-          aarch64) arch=arm64 ;;
+          x86_64) arch=amd64; rpm_arch=x86_64 ;;
+          aarch64) arch=arm64; rpm_arch=aarch64 ;;
           *) echo "unknown runner arch: $(uname -m)" >&2; exit 1 ;;
           esac
-          rpm -qp --qf '%{ARCH} %{FILENAMES}\n' "dist/ens_0.0.0ci_$arch.rpm" \
-            | grep -qx "$([ "$arch" = amd64 ] && echo x86_64 || echo aarch64) /usr/bin/ens"
-          tar -tzf dist/ens-linux-$arch.tar.gz | grep -qx ens
+          # Name one package at a time. A glob such as ens_*.deb matches both
+          # architectures that dist-linux builds, and dpkg-deb takes one file.
+          dpkg-deb -c "dist/ens_0.0.0ci_${arch}.deb" | grep -q usr/bin/ens
+          if dpkg-deb -c "dist/ens_0.0.0ci_${arch}.deb" | grep -q enserie-relay; then
+            echo "client deb must not contain enserie-relay" >&2
+            exit 1
+          fi
+          rpm -qp --qf '%{ARCH} %{FILENAMES}\n' "dist/ens_0.0.0ci_${arch}.rpm" \
+            | grep -qx "${rpm_arch} /usr/bin/ens"
+          tar -tzf "dist/ens-linux-${arch}.tar.gz" | grep -qx ens
 
   # The unit tests never open a TUN, so a relay handshake that arrives in the
   # wrong order still passes them. This job runs two nodes in two network

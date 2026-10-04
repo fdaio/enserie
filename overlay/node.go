@@ -75,6 +75,7 @@ type Node struct {
 	mu       sync.Mutex
 	peerConn net.Conn
 	peerKind transport.Kind
+	paired   bool
 	ln       net.Listener
 	cancel   context.CancelFunc
 	wg       sync.WaitGroup
@@ -389,6 +390,9 @@ func (n *Node) serveConn(ctx context.Context, c net.Conn, kind transport.Kind) {
 		n.logf("peer already connected, drop %s", kind)
 		return
 	}
+	// The invite token has now done its one job. A later holder of the same
+	// token must not pair under a different id.
+	n.markPaired()
 	n.logf("path %s", kind)
 	defer n.clearPeer(c)
 	for {
@@ -480,11 +484,25 @@ func (n *Node) bindPeerID(id string) bool {
 	}
 	n.mu.Lock()
 	defer n.mu.Unlock()
+	// An invite token pairs one node and no other. Without this a second
+	// holder of the same token could pair under a different id, because the
+	// bound id is the only thing that tells two peers apart.
+	if n.paired {
+		return n.cfg.Peer.ID == id
+	}
 	if n.cfg.Peer.ID == "" {
 		n.cfg.Peer.ID = id
 		return true
 	}
 	return n.cfg.Peer.ID == id
+}
+
+// markPaired records that the invite token has paired this node, so a later
+// holder of the same token cannot pair under a different id.
+func (n *Node) markPaired() {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.paired = true
 }
 
 func (n *Node) installPeer(c net.Conn, kind transport.Kind) bool {

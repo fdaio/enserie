@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"time"
 )
 
 const inviteVersion = 1
@@ -25,6 +26,10 @@ func DefaultRelayURLs() []string {
 type Invite struct {
 	// V is the token format version. Encode fills it when it is empty.
 	V int `json:"v"`
+	// Exp is when the token stops being valid, in Unix seconds. Encode fills
+	// it with now plus InviteTTL when it is empty, so a token does not stay
+	// usable long after the operator stopped waiting for the second machine.
+	Exp int64 `json:"exp,omitempty"`
 	// ID is the inviting node id.
 	ID string `json:"id"`
 	// FP is the inviting node certificate fingerprint in hex.
@@ -40,10 +45,19 @@ type Invite struct {
 	Secret string `json:"s"`
 }
 
-// Encode returns the token to hand to the accepting node.
+// InviteTTL is how long a token stays valid when the caller sets no deadline
+// of its own. Pairing means pasting a token by hand, so this only has to
+// outlast an operator who is still at the other machine.
+const InviteTTL = 30 * time.Minute
+
+// Encode returns the token to hand to the accepting node. It fills the version
+// and the expiry when they are empty.
 func (inv Invite) Encode() (string, error) {
 	if inv.V == 0 {
 		inv.V = inviteVersion
+	}
+	if inv.Exp == 0 {
+		inv.Exp = time.Now().Add(InviteTTL).Unix()
 	}
 	b, err := json.Marshal(inv)
 	if err != nil {
@@ -52,8 +66,9 @@ func (inv Invite) Encode() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(b), nil
 }
 
-// ParseInvite reads a token. It rejects an unknown version and a missing
-// field, and it fills Relays with the hosted splices when the token omits them.
+// ParseInvite reads a token. It rejects an unknown version, a missing field,
+// and a token past its expiry, and it fills Relays with the hosted splices
+// when the token omits them.
 func ParseInvite(token string) (Invite, error) {
 	token = strings.TrimSpace(token)
 	raw, err := base64.RawURLEncoding.DecodeString(token)
@@ -69,6 +84,14 @@ func ParseInvite(token string) (Invite, error) {
 	}
 	if inv.ID == "" || inv.FP == "" || inv.CIDR == "" || inv.Secret == "" {
 		return Invite{}, fmt.Errorf("invite token is missing fields")
+	}
+	// A token without a deadline cannot be aged out, so refuse it rather than
+	// accept a credential of unknown age.
+	if inv.Exp == 0 {
+		return Invite{}, fmt.Errorf("invite token has no expiry")
+	}
+	if time.Now().After(time.Unix(inv.Exp, 0)) {
+		return Invite{}, fmt.Errorf("invite token expired at %s", time.Unix(inv.Exp, 0).UTC().Format(time.RFC3339))
 	}
 	if len(inv.Relays) == 0 {
 		inv.Relays = DefaultRelayURLs()

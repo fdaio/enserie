@@ -27,16 +27,11 @@ jobs:
         run: |
           set -eu
           dpkg-deb -I dist/ens_*_amd64.deb
-          dpkg-deb -c dist/ens_*_amd64.deb | grep -q usr/bin/ens
-          if dpkg-deb -c dist/ens_*_amd64.deb | grep -q enserie-relay; then
-            echo "client deb must not contain enserie-relay" >&2
-            exit 1
-          fi
-          # The tar.gz has to carry the client, not only the relay. It used to
-          # be the relay alone, which left every distro without a deb with
-          # nothing to install.
-          tar -tzf dist/ens-linux-amd64.tar.gz | grep -qx ens
-          tar -tzf dist/ens-linux-arm64.tar.gz | grep -qx ens
+          # Both debs and both tarballs are built here. The rpm is a separate
+          # job, so ask for the formats this job produced.
+          for arch in amd64 arm64; do
+            ./scripts/inspect-packages.sh "${GITHUB_REF_NAME#v}" "$arch" linux deb tarball
+          done
       - uses: actions/upload-artifact@v4
         with:
           name: linux
@@ -71,16 +66,8 @@ jobs:
       - name: Package
         run: make dist-rpm VERSION="${GITHUB_REF_NAME#v}" ARCH=${{ matrix.arch }}
       - name: Inspect packages
-        run: |
-          set -eu
-          rpm -qip "dist/ens_${{ matrix.arch }}.rpm" 2>/dev/null || true
-          rpm -qp --qf '%{ARCH} %{NAME} %{VERSION}-%{RELEASE}\n' \
-            "dist/ens_${{ matrix.arch }}.rpm" > dist/rpm-arch.txt
-          cat dist/rpm-arch.txt
-          # The rpm has to name the architecture the job was for, or the
-          # runner matrix silently produced two identical packages.
-          grep -qx "${{ matrix.arch == 'amd64' && 'x86_64' || 'aarch64' }} ens ${GITHUB_REF_NAME#v}-1" dist/rpm-arch.txt
-          rpm -qp --qf '%{FILENAMES}\n' "dist/ens_${{ matrix.arch }}.rpm" | grep -qx /usr/bin/ens
+        # This job builds only the rpm, so check only the rpm.
+        run: ./scripts/inspect-packages.sh "${GITHUB_REF_NAME#v}" ${{ matrix.arch }} linux rpm
       - uses: actions/upload-artifact@v4
         with:
           name: rpm-${{ matrix.arch }}
@@ -99,14 +86,9 @@ jobs:
       - name: Inspect packages
         run: |
           set -eu
-          tar -tzf dist/ens-darwin-arm64.tar.gz | grep -qx ens
           codesign -dv dist/darwin-arm64/ens 2>&1 | grep -qi adhoc
           dist/darwin-arm64/ens version
-          # The formula names this release's tarball, so a stale checksum or
-          # version here would only fail for whoever tries to install.
-          grep -q "v${GITHUB_REF_NAME#v}/ens-darwin-arm64.tar.gz" dist/ens.rb
-          grep -q "version \"${GITHUB_REF_NAME#v}\"" dist/ens.rb
-          grep -q "$(shasum -a 256 dist/ens-darwin-arm64.tar.gz | cut -d' ' -f1)" dist/ens.rb
+          ./scripts/inspect-packages.sh "${GITHUB_REF_NAME#v}" arm64 darwin
       - uses: actions/upload-artifact@v4
         with:
           name: darwin

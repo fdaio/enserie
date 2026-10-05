@@ -129,6 +129,22 @@ benchmarks. Pass `--subnet` to choose another range:
 sudo ens invite --subnet 10.99.0.0/24
 ```
 
+The other machine dials the addresses in the token, in order, and each miss
+waits out a timeout before the next. They are ordered by how likely they are to
+answer: a public address first, then a LAN address, then a VPN or carrier NAT
+address such as `100.64.x.x`, which only answers if the peer is on the same
+VPN. Nothing is dropped, so two machines on one LAN still pair directly.
+
+When you know which address the peer can reach, name it. It is tried first:
+
+```bash
+sudo ens invite --advertise 203.0.113.7
+sudo ens invite --advertise home.example.com
+```
+
+That is the fix for a host whose only reachable address is a port mapping or a
+name the other side can resolve.
+
 It prints a one-line command. On machine Z, paste it:
 
 ```bash

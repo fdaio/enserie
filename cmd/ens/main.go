@@ -29,12 +29,12 @@ func main() {
 	case "version", "--version", "-version":
 		fmt.Println(version)
 	case "invite":
-		subnet, err := parseInviteFlags(os.Args[2:])
+		subnet, advertise, err := parseInviteFlags(os.Args[2:])
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(2)
 		}
-		if err := maybeSupervise(func() error { return runInvite(subnet) }); err != nil {
+		if err := maybeSupervise(func() error { return runInvite(subnet, advertise) }); err != nil {
 			reportFailure(err)
 			os.Exit(1)
 		}
@@ -68,30 +68,46 @@ func usage() {
 // parseInviteFlags reads the options for ens invite. The overlay range is
 // fixed by default, so a caller passes --subnet only when a VPN or another
 // network already holds the default range.
-func parseInviteFlags(args []string) (string, error) {
+func parseInviteFlags(args []string) (string, string, error) {
 	fs := flag.NewFlagSet("invite", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	subnet := fs.String("subnet", "", "IPv4 network to take the overlay link from, e.g. 10.99.0.0/24")
+	advertise := fs.String("advertise", "", "address the peer should try first, e.g. 203.0.113.7 or home.example.com")
 	if err := fs.Parse(args); err != nil {
-		return "", fmt.Errorf("%w\n\n%s", err, inviteFlagHelp())
+		return "", "", fmt.Errorf("%w\n\n%s", err, inviteFlagHelp())
 	}
 	// A flag package reads "--subnet --relay" as the subnet "--relay" and
 	// leaves the rest as positional arguments, so check the value first and
 	// name the option rather than reporting a broken CIDR.
 	if *subnet != "" && strings.HasPrefix(*subnet, "-") {
-		return "", fmt.Errorf("--subnet needs a network, got the option %q\n\n%s", *subnet, inviteFlagHelp())
+		return "", "", fmt.Errorf("--subnet needs a network, got the option %q\n\n%s", *subnet, inviteFlagHelp())
+	}
+	if *advertise != "" && strings.HasPrefix(*advertise, "-") {
+		return "", "", fmt.Errorf("--advertise needs an address, got the option %q\n\n%s", *advertise, inviteFlagHelp())
+	}
+	if *advertise != "" {
+		host, _, err := net.SplitHostPort(*advertise)
+		if err == nil {
+			// A port was given but the listener picks its own, so keeping it
+			// would advertise a port nothing is listening on.
+			*advertise = host
+		}
+		if strings.TrimSpace(*advertise) == "" {
+			return "", "", fmt.Errorf("--advertise needs an address\n\n%s", inviteFlagHelp())
+		}
 	}
 	if fs.NArg() > 0 {
-		return "", fmt.Errorf("ens invite takes no positional argument\n\n%s", inviteFlagHelp())
+		return "", "", fmt.Errorf("ens invite takes no positional argument\n\n%s", inviteFlagHelp())
 	}
-	return *subnet, nil
+	return *subnet, *advertise, nil
 }
 
 func inviteFlagHelp() string {
 	var b strings.Builder
 	fs := flag.NewFlagSet("invite", flag.ContinueOnError)
 	fs.String("subnet", "", "IPv4 network to take the overlay link from, e.g. 10.99.0.0/24")
-	fmt.Fprintf(&b, "usage: ens invite [--subnet CIDR]\n")
+	fs.String("advertise", "", "address the peer should try first, e.g. 203.0.113.7 or home.example.com")
+	fmt.Fprintf(&b, "usage: ens invite [--subnet CIDR] [--advertise HOST]\n")
 	old := fs.Output()
 	fs.SetOutput(&b)
 	fs.PrintDefaults()
@@ -109,7 +125,7 @@ func reportFailure(err error) {
 	fmt.Fprintln(os.Stderr, err)
 }
 
-func runInvite(subnet string) error {
+func runInvite(subnet, advertise string) error {
 	lock, err := acquireInstanceLock()
 	if err != nil {
 		return err
@@ -175,7 +191,7 @@ func runInvite(subnet string) error {
 		ID:     id,
 		FP:     fp,
 		CIDR:   inviteCIDR,
-		Addrs:  overlay.FilterOverlayAddrs(transport.ExpandCandidates(n.ListenAddr(), ""), prefix),
+		Addrs:  overlay.FilterOverlayAddrs(transport.ExpandCandidates(n.ListenAddr(), advertise), prefix),
 		Secret: secret,
 	}
 	token, err := inv.Encode()

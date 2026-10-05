@@ -103,6 +103,15 @@ The offering node binds `0.0.0.0:0` and passes its candidates in the token.
 `transport.PreferNonLoopback` puts loopback last, because loopback only helps
 on one host.
 
+The accepting node dials the candidates in order and each miss waits out a
+15 second dial timeout, so the order decides how long a bad address costs. A
+public address is tried first, then a LAN address, then `100.64.0.0/10`, the
+range carriers hand out and the range Tailscale uses, since an address there
+answers only when the peer is on the same VPN. Nothing is dropped, because a
+LAN address is how two machines on one network pair directly. `ens invite
+--advertise HOST` puts a named address ahead of all of them, which is the way
+out when the only reachable address is a port mapping or a resolvable name.
+
 There is no STUN and no address discovery, so a node behind a symmetric NAT
 contributes no usable candidate. Candidates come from what the operating system
 already knows.

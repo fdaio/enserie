@@ -140,7 +140,7 @@ first. Relay is automatic when QUIC cannot complete.
 
 After the first path is up, the parent prints a pid and returns the shell.
 The worker keeps the TUN. `sudo ens down` stops it. Later path logs go to
-`/run/ens.log`.
+`/run/ens.log`, or `/var/run/ens.log` on macOS, which has no `/run`.
 
 When the path is up, `ping` the overlay IP printed on the other side.
 
@@ -280,7 +280,8 @@ with the hosted splices when the token omits them.
   TUN. `Node.WaitPacket` only reads the memory device in this package, so it
   stays inside these tests.
 - `ens` adds what the library leaves to you: one instance per host
-  (`/run/ens.lock`), a background worker with a pid, and `/run/ens.log`.
+  (`/run/ens.lock`, or `/var/run/ens.lock` on macOS), a background worker with
+  a pid, and a log next to it.
 
 ## Build
 

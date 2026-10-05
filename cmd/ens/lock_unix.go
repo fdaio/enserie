@@ -14,25 +14,58 @@ import (
 // testLockPath overrides the lock file in tests.
 var testLockPath string
 
+// runtimeDir is where the lock and the log live when running as root.
+//
+// Linux keeps /run, which is a tmpfs that the system clears on boot. macOS has
+// no /run at all, so a hardcoded path there fails with "no such file or
+// directory" before any TUN work starts. /var/run is the same directory on
+// Linux, through a symlink, and the closest equivalent macOS has.
+//
+// Both are root-owned, which matters: a lock in a world-writable directory
+// would let another user pre-create the file.
+var runtimeDir = func() string {
+	for _, dir := range []string{"/run", "/var/run"} {
+		if st, err := os.Stat(dir); err == nil && st.IsDir() {
+			return dir
+		}
+	}
+	return filepath.Join(os.TempDir(), "ens")
+}
+
 func lockPath() string {
+	return lockPathFor(os.Geteuid())
+}
+
+// lockPathFor takes the effective user id so that a test can check the root
+// branch on a runner that is not root. Otherwise the check that matters most
+// only ever runs on one developer's machine.
+func lockPathFor(euid int) string {
 	if testLockPath != "" {
 		return testLockPath
 	}
-	if os.Geteuid() != 0 {
+	if euid != 0 {
 		return filepath.Join(os.TempDir(), "ens.lock")
 	}
-	return "/run/ens.lock"
+	return filepath.Join(runtimeDir(), "ens.lock")
 }
 
 func logPath() string {
-	if os.Geteuid() != 0 {
+	return logPathFor(os.Geteuid())
+}
+
+func logPathFor(euid int) string {
+	if euid != 0 {
 		return filepath.Join(os.TempDir(), "ens.log")
 	}
-	return "/run/ens.log"
+	return filepath.Join(runtimeDir(), "ens.log")
 }
 
 func acquireInstanceLock() (*os.File, error) {
-	f, err := os.OpenFile(lockPath(), os.O_CREATE|os.O_RDWR, 0644)
+	return acquireInstanceLockAt(lockPath())
+}
+
+func acquireInstanceLockAt(path string) (*os.File, error) {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0644)
 	if err != nil {
 		return nil, err
 	}

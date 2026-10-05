@@ -49,6 +49,9 @@ jobs:
   # own architecture. ubuntu-24.04-arm is free for a public repository.
   dist-rpm:
     strategy:
+      # Each runner builds one architecture. Cancelling the sibling on the
+      # first failure hides that architecture's result.
+      fail-fast: false
       matrix:
         include:
           - runner: ubuntu-latest
@@ -74,7 +77,10 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: rpm-${{ matrix.arch }}
-          path: dist/ens_${GITHUB_REF_NAME#v}_${{ matrix.arch }}.rpm
+          # Only ${{ }} is expanded here, so a shell parameter expansion would
+          # reach the action as a literal string. Glob the version instead, and
+          # keep the architecture in the pattern so the match stays exact.
+          path: dist/ens_*_${{ matrix.arch }}.rpm
           if-no-files-found: error
 
   dist-darwin:

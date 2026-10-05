@@ -1,4 +1,4 @@
-module github.com/fdaio/enserie
+module github.com/fdaio/enserie // Apache-2.0
 
 go 1.26.0
 

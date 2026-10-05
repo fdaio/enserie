@@ -290,3 +290,7 @@ make build
 make dist-linux VERSION=0.2.10
 make dist-darwin VERSION=0.2.10
 ```
+
+## License
+
+Apache-2.0 — see [LICENSE](LICENSE).

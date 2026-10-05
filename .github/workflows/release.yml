@@ -39,6 +39,9 @@ jobs:
             dist/*.deb
             dist/ens-linux-*.tar.gz
             dist/enserie-relay-linux-*.tar.gz
+          # A path that matches nothing leaves an empty artifact and the job
+          # still passes, which is how a release once shipped with no rpm.
+          if-no-files-found: error
 
   # Distro rpm knows only the host architecture, so a spec whose BuildArch is
   # not the host one fails with "No compatible architectures found". There is
@@ -71,7 +74,8 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: rpm-${{ matrix.arch }}
-          path: dist/ens_${{ matrix.arch }}.rpm
+          path: dist/ens_${GITHUB_REF_NAME#v}_${{ matrix.arch }}.rpm
+          if-no-files-found: error
 
   dist-darwin:
     runs-on: macos-latest
@@ -97,21 +101,49 @@ jobs:
             dist/enserie-relay-darwin-*.tar.gz
             dist/ens_*.pkg
             dist/ens.rb
+          if-no-files-found: error
 
   publish:
     needs: [dist-linux, dist-rpm, dist-darwin]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           merge-multiple: true
           path: dist
+      # Every download path in the README names one of these files. A release
+      # that is missing one installs on fewer platforms than the README claims,
+      # and nobody notices until a user tries. This v0.2.10 shipped with no rpm
+      # at all for exactly that reason.
+      - name: Check every advertised file is here
+        run: |
+          set -eu
+          ver="${GITHUB_REF_NAME#v}"
+          missing=0
+          for f in \
+            "ens_${ver}_amd64.deb" "ens_${ver}_arm64.deb" \
+            "ens_${ver}_amd64.rpm" "ens_${ver}_arm64.rpm" \
+            "ens_${ver}_amd64.pkg" "ens_${ver}_arm64.pkg" \
+            ens-linux-amd64.tar.gz ens-linux-arm64.tar.gz \
+            ens-darwin-amd64.tar.gz ens-darwin-arm64.tar.gz \
+            enserie-relay_${ver}_amd64.deb enserie-relay_${ver}_arm64.deb \
+            enserie-relay-linux-amd64.tar.gz enserie-relay-linux-arm64.tar.gz \
+            enserie-relay-darwin-amd64.tar.gz enserie-relay-darwin-arm64.tar.gz \
+            ens.rb
+          do
+            if [ ! -f "dist/$f" ]; then
+              echo "missing from the release: $f" >&2
+              missing=1
+            fi
+          done
+          [ "$missing" = 0 ] || exit 1
+          ls -lh dist
       - name: Checksums
         run: |
           set -eu
           cd dist
           sha256sum * > SHA256SUMS
-          ls -lh
       - uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true

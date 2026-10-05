@@ -57,20 +57,11 @@ jobs:
         run: |
           set -eu
           case "$(uname -m)" in
-          x86_64) arch=amd64; rpm_arch=x86_64 ;;
-          aarch64) arch=arm64; rpm_arch=aarch64 ;;
+          x86_64) arch=amd64 ;;
+          aarch64) arch=arm64 ;;
           *) echo "unknown runner arch: $(uname -m)" >&2; exit 1 ;;
           esac
-          # Name one package at a time. A glob such as ens_*.deb matches both
-          # architectures that dist-linux builds, and dpkg-deb takes one file.
-          dpkg-deb -c "dist/ens_0.0.0ci_${arch}.deb" | grep -q usr/bin/ens
-          if dpkg-deb -c "dist/ens_0.0.0ci_${arch}.deb" | grep -q enserie-relay; then
-            echo "client deb must not contain enserie-relay" >&2
-            exit 1
-          fi
-          rpm -qp --qf '%{ARCH} %{FILENAMES}\n' "dist/ens_0.0.0ci_${arch}.rpm" \
-            | grep -qx "${rpm_arch} /usr/bin/ens"
-          tar -tzf "dist/ens-linux-${arch}.tar.gz" | grep -qx ens
+          ./scripts/inspect-packages.sh 0.0.0ci "$arch" linux deb rpm tarball
 
   # The unit tests never open a TUN, so a relay handshake that arrives in the
   # wrong order still passes them. This job runs two nodes in two network
@@ -126,17 +117,9 @@ jobs:
           go-version-file: go.mod
           cache: true
       - name: Package
-        run: make dist-darwin VERSION=0.0.0-ci
+        run: make dist-darwin VERSION=0.0.0ci
       - name: Inspect packages
-        run: |
-          set -eu
-          pkgutil --expand dist/ens_0.0.0-ci_arm64.pkg /tmp/ens-pkg
-          pkgutil --flatten /tmp/ens-pkg /tmp/ens-flat.pkg
-          grep -q 'identifier="dev.getfda.enserie.ens"' /tmp/ens-pkg/PackageInfo
-          grep -q 'version="0.0.0-ci"' /tmp/ens-pkg/PackageInfo
-          # brew style is what a tap submission is checked against, so a
-          # formula that fails it here would fail on every brew install.
-          brew style dist/ens.rb
+        run: ./scripts/inspect-packages.sh 0.0.0ci arm64 darwin
 
   dist-darwin:
     runs-on: macos-latest

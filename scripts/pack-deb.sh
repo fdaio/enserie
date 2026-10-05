@@ -51,6 +51,7 @@ Priority: optional
 Architecture: $ARCH
 Maintainer: fdaio <noreply@getfda.dev>
 Homepage: https://github.com/fdaio/enserie
+License: Apache-2.0
 Installed-Size: $SIZE
 Description: $SUMMARY
 EOF

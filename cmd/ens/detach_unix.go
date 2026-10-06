@@ -5,6 +5,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -22,6 +23,9 @@ const (
 	statusConnected = "connected"
 	statusErrorPref = "error: "
 	statusFD        = 3
+	// statusGrace is how long a supervisor waits for a message the worker
+	// already wrote before falling back to the exit status.
+	statusGrace = 500 * time.Millisecond
 )
 
 func isWorker() bool {
@@ -112,6 +116,19 @@ func waitConnected(ctx context.Context, r io.Reader, waitCh <-chan error, kill f
 			return ctx.Err()
 		case err := <-waitCh:
 			if err != nil {
+				// A worker writes its error to the status pipe before it
+				// exits, so both this case and the scanner are ready at once
+				// and the select picks between them at random. Without this
+				// pause the real reason is replaced by the exit status half
+				// the time, which is how "ens already running" turned into
+				// "ens worker exited: exit status 1".
+				select {
+				case rerr := <-readErr:
+					if rerr != nil && !errors.Is(rerr, io.EOF) {
+						return rerr
+					}
+				case <-time.After(statusGrace):
+				}
 				return fmt.Errorf("ens worker exited: %w", err)
 			}
 			return fmt.Errorf("ens worker exited before connect")

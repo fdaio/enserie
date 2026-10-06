@@ -15,6 +15,9 @@ import (
 // then fails with "ens already running".
 const stopGrace = 10 * time.Second
 
+// stopGraceForTest shortens the grace so the tests do not wait ten seconds.
+var stopGraceForTest = stopGrace
+
 func runDown() error {
 	pid, err := readWorkerPIDAt(lockPath())
 	if err == nil && isLive(pid) {
@@ -28,7 +31,13 @@ func runDown() error {
 			}
 			return sigErr
 		}
-		waitGone(pid, stopGrace)
+		if !waitGone(pid, stopGraceForTest) {
+			// Reporting a stop that did not happen is worse than reporting
+			// nothing. An instance that ignores SIGTERM is stuck rather than
+			// working, and it keeps the lock, so the next ens invite fails
+			// with "ens already running" while this command said it stopped.
+			return fmt.Errorf("ens: pid %d ignored SIGTERM and is still running after %s; stop it with: sudo kill -9 %d", pid, stopGraceForTest, pid)
+		}
 		fmt.Fprintf(os.Stderr, "ens: stopped pid %d\n", pid)
 		return nil
 	}

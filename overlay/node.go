@@ -224,9 +224,7 @@ func (n *Node) Close() error {
 		_ = n.ln.Close()
 	}
 	n.dropPeer()
-	if n.dev != nil {
-		_ = n.dev.Close()
-	}
+	n.closeDev()
 	n.waitGoroutines()
 	n.dev = nil
 	return nil
@@ -261,8 +259,22 @@ func (n *Node) cleanupDev() error {
 	if n.dev == nil {
 		return nil
 	}
-	err := n.dev.Close()
+	err := n.closeDev()
 	n.dev = nil
+	return err
+}
+
+// closeDev closes the TUN and drops the firewall rules that name it. The
+// device name is read before the close, because a closed device no longer
+// reports one.
+//
+// The caller clears n.dev, not this function: tunLoop and the send path read
+// that field without a nil check, so it has to stay valid until the callers
+// decide the node is finished with it.
+func (n *Node) closeDev() error {
+	name := n.dev.Name()
+	err := n.dev.Close()
+	removeLinuxTUNFirewall(name)
 	return err
 }
 

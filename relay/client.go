@@ -33,7 +33,10 @@ func dialRelay(ctx context.Context, relayURL string) (net.Conn, error) {
 	if err != nil {
 		return nil, fmt.Errorf("relay websocket %s: %w", wsURL, err)
 	}
-	return websocket.NetConn(context.Background(), ws, websocket.MessageBinary), nil
+	nc := websocket.NetConn(context.Background(), ws, websocket.MessageBinary)
+	// Every relay leg goes through here, so the keepalive covers the offer,
+	// the dial and the accept alike.
+	return withKeepalive(ws, nc), nil
 }
 
 // Offer keeps a rendezvous on the relay for nodeID. onTicket is called for

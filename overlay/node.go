@@ -227,9 +227,34 @@ func (n *Node) Close() error {
 	if n.dev != nil {
 		_ = n.dev.Close()
 	}
-	n.wg.Wait()
+	n.waitGoroutines()
 	n.dev = nil
 	return nil
+}
+
+// shutdownGrace bounds the wait for the node goroutines. tunLoop reads from
+// the TUN with a blocking read, because the Go poller does not see packets on
+// an Orb virtio TUN, and closing the file descriptor does not wake a read that
+// is already blocked on Linux. Without a bound, Close waits for the next packet
+// to arrive, so a shutdown never finishes and the interface outlives the
+// command that should have removed it.
+const shutdownGrace = 2 * time.Second
+
+// waitGoroutines waits for the node goroutines, giving up after
+// shutdownGrace. A goroutine still blocked on a TUN read ends when the process
+// exits, which releases the interface anyway.
+func (n *Node) waitGoroutines() {
+	done := make(chan struct{})
+	go func() {
+		n.wg.Wait()
+		close(done)
+	}()
+	timer := time.NewTimer(shutdownGrace)
+	defer timer.Stop()
+	select {
+	case <-done:
+	case <-timer.C:
+	}
 }
 
 func (n *Node) cleanupDev() error {

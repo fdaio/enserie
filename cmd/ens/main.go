@@ -285,6 +285,10 @@ func ephemeralCert() (tls.Certificate, error) {
 	if err != nil {
 		return tls.Certificate{}, err
 	}
+	// EnsureServerCert returns a certificate that is already in memory, so the
+	// files it wrote are dead weight. Keeping them would leave one directory
+	// holding a private key behind on every run.
+	defer func() { _ = os.RemoveAll(dir) }()
 	return transport.EnsureServerCert(filepath.Join(dir, "tls.crt"), filepath.Join(dir, "tls.key"))
 }
 

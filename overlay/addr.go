@@ -44,19 +44,44 @@ func linuxTUNCommands(name string, local, peer net.IP, mtu int) [][]string {
 	}
 }
 
+// linuxTUNFirewallCommands returns the iptables commands that open a device to
+// overlay traffic. direction is the flag that names the device, which differs
+// between the input and the output chain.
+func linuxTUNFirewallCommands(chain, flag, name string) [][]string {
+	return [][]string{
+		{"-C", chain, flag, name, "-j", "ACCEPT"},
+		{"-I", chain, flag, name, "-j", "ACCEPT"},
+		{"-D", chain, flag, name, "-j", "ACCEPT"},
+	}
+}
+
+// linuxTUNFirewallRules returns one command set per chain, each holding the
+// check, the insert and the matching delete.
+func linuxTUNFirewallRules(name string) [][][]string {
+	return [][][]string{
+		linuxTUNFirewallCommands("INPUT", "-i", name),
+		linuxTUNFirewallCommands("OUTPUT", "-o", name),
+	}
+}
+
 func configureLinuxTUNFirewall(name string) {
-	for _, chain := range []string{"INPUT", "OUTPUT"} {
-		check := exec.Command("iptables", "-C", chain, "-i", name, "-j", "ACCEPT")
-		if chain == "OUTPUT" {
-			check = exec.Command("iptables", "-C", chain, "-o", name, "-j", "ACCEPT")
-		}
-		if check.Run() == nil {
+	for _, rules := range linuxTUNFirewallRules(name) {
+		if exec.Command("iptables", rules[0]...).Run() == nil {
 			continue
 		}
-		if chain == "INPUT" {
-			_ = exec.Command("iptables", "-I", chain, "-i", name, "-j", "ACCEPT").Run()
-			continue
-		}
-		_ = exec.Command("iptables", "-I", chain, "-o", name, "-j", "ACCEPT").Run()
+		_ = exec.Command("iptables", rules[1]...).Run()
+	}
+}
+
+// removeLinuxTUNFirewall drops the rules configureLinuxTUNFirewall added.
+// Closing the TUN removes the device, which also removes its routes, but the
+// rules naming it stay in the host chains and then point at a device that no
+// longer exists.
+func removeLinuxTUNFirewall(name string) {
+	if runtime.GOOS != "linux" {
+		return
+	}
+	for _, rules := range linuxTUNFirewallRules(name) {
+		_ = exec.Command("iptables", rules[2]...).Run()
 	}
 }

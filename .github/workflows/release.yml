@@ -160,3 +160,58 @@ jobs:
             dist/*.pkg
             dist/ens.rb
             dist/SHA256SUMS
+
+  # The tap is a separate repository, so this cannot use GITHUB_TOKEN, which is
+  # scoped to this one. TAP_TOKEN is a fine-grained token with write access to
+  # fdaio/homebrew-enserie and nothing else.
+  #
+  # This runs after publish on purpose. The release is already out, so a tap
+  # failure leaves brew install on the previous version and says so, rather than
+  # holding a finished release hostage.
+  tap:
+    needs: [publish, dist-darwin]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: darwin
+          path: dist
+      - name: Generate the formula
+        run: ./scripts/homebrew-formula.sh "${GITHUB_REF_NAME#v}" arm64 dist/ens-darwin-arm64.tar.gz ens.rb
+      - name: Check the tap token
+        env:
+          TAP_TOKEN: ${{ secrets.TAP_TOKEN }}
+        run: |
+          set -eu
+          if [ -z "${TAP_TOKEN:-}" ]; then
+            echo "TAP_TOKEN is not set, so the tap would keep serving the previous version." >&2
+            echo "Create a fine-grained token with write access to fdaio/homebrew-enserie" >&2
+            echo "and add it as the TAP_TOKEN secret of fdaio/enserie." >&2
+            exit 1
+          fi
+      - name: Update the tap
+        env:
+          TAP_TOKEN: ${{ secrets.TAP_TOKEN }}
+        run: |
+          set -eu
+          # An askpass script keeps the token out of the remote URL, which would
+          # otherwise be printed by git on a failed clone.
+          cat >"$RUNNER_TEMP/askpass.sh" <<'EOS'
+          #!/bin/sh
+          echo "x-access-token=$TAP_TOKEN"
+          EOS
+          chmod +x "$RUNNER_TEMP/askpass.sh"
+          export GIT_ASKPASS="$RUNNER_TEMP/askpass.sh" GIT_TERMINAL_PROMPT=0
+
+          git clone --depth 1 https://github.com/fdaio/homebrew-enserie.git tap
+          cp ens.rb tap/Formula/ens.rb
+          cd tap
+          git config user.name "fdaio"
+          git config user.email "noreply@getfda.dev"
+          if git diff --quiet; then
+            echo "the tap already serves this version"
+            exit 0
+          fi
+          git commit -am "Update the ens formula to ${GITHUB_REF_NAME#v}"
+          git push origin HEAD:main

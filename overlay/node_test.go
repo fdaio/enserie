@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/http"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -341,3 +342,85 @@ func waitHTTP(t *testing.T, url string) {
 	}
 	t.Fatalf("relay not ready at %s", url)
 }
+
+// A shutdown must finish even when the TUN read never returns. tunLoop blocks
+// in a read that closing the file descriptor does not wake on Linux, so Close
+// used to wait forever: ens down reported a stop, the process stayed alive, the
+// interface stayed up and the lock stayed held, and the next ens invite failed
+// with "ens already running".
+func TestCloseFinishesWhenTheDeviceReadNeverReturns(t *testing.T) {
+	dir := t.TempDir()
+	cert, err := transport.EnsureServerCert(filepath.Join(dir, "a.crt"), filepath.Join(dir, "a.key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dev := &blockingDevice{}
+	n, err := New(Config{
+		ID:     "a",
+		CIDR:   "198.18.0.1/30",
+		Cert:   cert,
+		Listen: "127.0.0.1:0",
+		Secret: "s",
+		Invite: true,
+		Peer:   Peer{IP: net.ParseIP("198.18.0.2")},
+		Device: dev,
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := n.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	// Wait until tunLoop is inside the read. Closing first would cancel the
+	// context before the loop starts, and it would exit without ever blocking,
+	// which is the one case where an unbounded wait does not hang.
+	waitForRead(t, dev)
+
+	done := make(chan struct{})
+	go func() {
+		_ = n.Close()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(shutdownGrace + 5*time.Second):
+		t.Fatal("Close did not return; the node is waiting on a TUN read")
+	}
+}
+
+func waitForRead(t *testing.T, dev *blockingDevice) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for atomic.LoadInt32(&dev.reads) == 0 {
+		if !time.Now().Before(deadline) {
+			t.Fatal("the node never read from the device")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// blockingDevice stands in for a TUN whose read stays blocked after Close.
+// Closing a real TUN file descriptor does not wake a read that is already
+// blocked on it, so the device has to keep the reader waiting to reproduce the
+// shutdown that never finished.
+type blockingDevice struct {
+	reads int32
+}
+
+func (d *blockingDevice) Name() string { return "enserie0" }
+
+func (d *blockingDevice) ReadPacket([]byte) (int, error) {
+	atomic.AddInt32(&d.reads, 1)
+	select {}
+}
+
+func (d *blockingDevice) WritePacket(p []byte) (int, error) { return len(p), nil }
+
+func (d *blockingDevice) LocalIP() net.IP { return net.ParseIP("198.18.0.1") }
+
+func (d *blockingDevice) PeerIP() net.IP { return net.ParseIP("198.18.0.2") }
+
+func (d *blockingDevice) Close() error { return nil }

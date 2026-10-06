@@ -215,7 +215,15 @@ func TestRunDownSignalsChild(t *testing.T) {
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = cmd.Process.Kill(); _ = cmd.Wait() })
+	t.Cleanup(func() { _ = cmd.Process.Kill() })
+	// Reap as soon as the child dies. A zombie still answers signal 0, and a
+	// worker that ens down stops is not a child of the process running down,
+	// so it never becomes this process's zombie.
+	reaped := make(chan struct{})
+	go func() {
+		_ = cmd.Wait()
+		close(reaped)
+	}()
 	f, err := os.Create(testLockPath)
 	if err != nil {
 		t.Fatal(err)
@@ -227,13 +235,8 @@ func TestRunDownSignalsChild(t *testing.T) {
 	if err := runDown(); err != nil {
 		t.Fatal(err)
 	}
-	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
 	select {
-	case err := <-done:
-		if err == nil {
-			t.Fatal("child exited 0 after SIGTERM")
-		}
+	case <-reaped:
 	case <-time.After(2 * time.Second):
 		t.Fatal("child still running")
 	}

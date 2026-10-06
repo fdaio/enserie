@@ -49,6 +49,23 @@ func lockPathFor(euid int) string {
 	return filepath.Join(runtimeDir(), "ens.lock")
 }
 
+// otherLockPath returns the lock file a different privilege level would use,
+// and an empty string when there is only one.
+//
+// A root instance locks <runtime dir>/ens.lock while an unprivileged one locks
+// a file in the temporary directory. An unprivileged `ens down` therefore found
+// nothing and reported "ens is not running" while a root instance was up. The
+// lock file is world readable, so the lookup can see the other one.
+func otherLockPath() string {
+	if testLockPath != "" {
+		return ""
+	}
+	if os.Geteuid() == 0 {
+		return filepath.Join(os.TempDir(), "ens.lock")
+	}
+	return filepath.Join(runtimeDir(), "ens.lock")
+}
+
 func logPath() string {
 	return logPathFor(os.Geteuid())
 }
@@ -92,16 +109,22 @@ func writeLockPID(f *os.File, pid int) error {
 }
 
 func readWorkerPID() (int, error) {
-	b, err := os.ReadFile(lockPath())
+	return readWorkerPIDAt(lockPath())
+}
+
+func readWorkerPIDAt(path string) (int, error) {
+	b, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return 0, fmt.Errorf("ens is not running")
+			return 0, errNotRunning
 		}
 		return 0, err
 	}
 	pid, err := strconv.Atoi(strings.TrimSpace(string(b)))
 	if err != nil || pid <= 1 {
-		return 0, fmt.Errorf("ens is not running")
+		return 0, errNotRunning
 	}
 	return pid, nil
 }
+
+var errNotRunning = fmt.Errorf("ens is not running")

@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"golang.org/x/sys/unix"
 	"time"
 )
 
@@ -239,5 +241,50 @@ func TestRunDownSignalsChild(t *testing.T) {
 	case <-reaped:
 	case <-time.After(2 * time.Second):
 		t.Fatal("child still running")
+	}
+}
+
+// A failed redirect must say so. Without the redirect the worker keeps writing
+// to the terminal, so the shell looks like it never returned and the logs give
+// no hint why.
+func TestRedirectLogsReportsAFailure(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "no-such-dir", "ens.log")
+	out := captureStderr(t, func() {
+		if err := redirectLogsTo(missing); err == nil {
+			t.Error("redirectLogsTo succeeded with a path it cannot create")
+		}
+	})
+	if !strings.Contains(out, "ens.log") {
+		t.Errorf("output = %q, want it to name the log path", out)
+	}
+	if !strings.Contains(out, "terminal") {
+		t.Errorf("output = %q, want it to say the logs stay on the terminal", out)
+	}
+}
+
+func TestRedirectLogsSucceedsQuietly(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "ens.log")
+	// redirectLogsTo repoints fd 1 and 2, so restore them afterwards.
+	savedOut, err := unix.Dup(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	savedErr, err := unix.Dup(2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = unix.Dup2(savedOut, 1)
+		_ = unix.Dup2(savedErr, 2)
+		_ = unix.Close(savedOut)
+		_ = unix.Close(savedErr)
+	})
+
+	if err := redirectLogsTo(path); err != nil {
+		t.Fatalf("redirectLogsTo: %v", err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Errorf("log file was not created: %v", err)
 	}
 }

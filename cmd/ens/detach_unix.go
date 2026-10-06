@@ -173,12 +173,23 @@ func reportError(err error) {
 	_ = f.Close()
 }
 
+// redirectLogs sends the worker's output to the log file. A failure is
+// reported on the terminal rather than swallowed: without the redirect the
+// worker keeps writing to the terminal, so the shell looks like it never
+// returned, and the logs give no hint why.
 func redirectLogs() {
-	f, err := os.OpenFile(logPath(), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+	redirectLogsTo(logPath())
+}
+
+func redirectLogsTo(path string) error {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {
-		return
+		fmt.Fprintf(os.Stderr, "ens: cannot write the log to %s: %v\n", path, err)
+		fmt.Fprintf(os.Stderr, "ens: logs stay on this terminal until you stop the worker\n")
+		return err
 	}
 	_ = unix.Dup2(int(f.Fd()), 1)
 	_ = unix.Dup2(int(f.Fd()), 2)
 	_ = f.Close()
+	return nil
 }

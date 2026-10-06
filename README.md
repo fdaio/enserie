@@ -158,6 +158,19 @@ After the first path is up, the parent prints a pid and returns the shell.
 The worker keeps the TUN. `sudo ens down` stops it. Later path logs go to
 `/run/ens.log`, or `/var/run/ens.log` on macOS, which has no `/run`.
 
+Installing a new version does not change a running one. A package manager
+replaces the file on disk, and the running worker keeps the code it started
+with, so a worker that is stuck keeps the bug it was started with. If `ens
+down` reports that a pid ignored SIGTERM, or the overlay will not come up after
+an upgrade, force the old process out:
+
+```bash
+sudo pkill -f 'ens (invite|accept)'
+sudo ip link delete enserie0   # only if a TUN is left behind
+```
+
+Then `sudo ens invite` starts on the new binary.
+
 When the path is up, `ping` the overlay IP printed on the other side.
 
 ### When a VPN takes the range

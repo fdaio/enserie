@@ -369,38 +369,82 @@ func (n *Node) dialLoop(ctx context.Context) {
 }
 
 func (n *Node) dialPeer(ctx context.Context) (net.Conn, transport.Kind, error) {
-	if !n.cfg.Peer.ForceRelay {
-		for _, addr := range transport.PreferNonLoopback(n.cfg.Peer.Candidates) {
-			c, err := transport.DialQUIC(ctx, addr, n.cfg.Peer.CertFP, n.cfg.Cert)
-			if err == nil {
-				return c, transport.KindQUIC, nil
-			}
-		}
+	addrs, relays := dialTargets(n.cfg)
+	fast := make([]dialAttempt, 0, len(addrs))
+	for _, addr := range addrs {
+		fast = append(fast, n.quicAttempt(addr))
 	}
-	var errs []error
-	for _, url := range n.cfg.Relays {
+	slow := make([]dialAttempt, 0, len(relays))
+	for _, url := range relays {
+		slow = append(slow, n.relayAttempt(ctx, url))
+	}
+	return dialRace(ctx, relayHedgeDelay, fast, slow)
+}
+
+// dialTargets returns the addresses to race first and the relays to fall back
+// on. The relay is kept out of the first group so a direct path stays
+// preferred, and a peer forced onto the relay gets no candidates at all.
+func dialTargets(cfg Config) (addrs, relays []string) {
+	if !cfg.Peer.ForceRelay {
+		addrs = transport.PreferNonLoopback(cfg.Peer.Candidates)
+	}
+	for _, url := range cfg.Relays {
 		if url == "" || url == "off" {
 			continue
 		}
-		raw, err := relay.Dial(ctx, url, n.cfg.Peer.ID)
+		relays = append(relays, url)
+	}
+	return addrs, relays
+}
+
+// quicAttempt dials one advertised address. It logs its own outcome with the
+// time it took, so an address that cannot be answered from here shows up in the
+// log instead of only as missing traffic.
+func (n *Node) quicAttempt(addr string) dialAttempt {
+	return func(ctx context.Context) (net.Conn, transport.Kind, error) {
+		start := time.Now()
+		c, err := transport.DialQUIC(ctx, addr, n.cfg.Peer.CertFP, n.cfg.Cert)
 		if err != nil {
-			n.logf("relay dial %s: %v", url, err)
-			errs = append(errs, err)
-			continue
+			// Another attempt won the race and cancelled this one. Reporting a
+			// cancellation as an unreachable address would name an address that
+			// may well have answered.
+			if ctx.Err() == nil {
+				n.logf("candidate %s unreachable after %s: %v", addr, time.Since(start).Round(time.Millisecond), err)
+			}
+			return nil, "", err
+		}
+		n.logf("candidate %s connected after %s", addr, time.Since(start).Round(time.Millisecond))
+		return c, transport.KindQUIC, nil
+	}
+}
+
+// relayAttempt reaches the peer through one relay.
+//
+// The connection is opened under life, which is the context the node runs under,
+// and not under the dial context. relay.Dial closes the connection when the
+// context it was given is done, and dialRace cancels its own context as soon as
+// a path is chosen, so a connection opened under the dial context would be shut
+// the moment it won. A leg that loses the race is closed by dialRace instead,
+// once its own dial gives out.
+func (n *Node) relayAttempt(life context.Context, url string) dialAttempt {
+	return func(ctx context.Context) (net.Conn, transport.Kind, error) {
+		start := time.Now()
+		raw, err := relay.Dial(life, url, n.cfg.Peer.ID)
+		if err != nil {
+			if ctx.Err() == nil {
+				n.logf("relay %s failed after %s: %v", url, time.Since(start).Round(time.Millisecond), err)
+			}
+			return nil, "", err
 		}
 		secure, err := transport.ClientE2E(raw, transport.E2EClientConfig(n.cfg.Cert, n.cfg.Peer.CertFP))
 		if err != nil {
-			n.logf("relay client tls: %v", err)
+			n.logf("relay %s tls failed after %s: %v", url, time.Since(start).Round(time.Millisecond), err)
 			_ = raw.Close()
-			errs = append(errs, err)
-			continue
+			return nil, "", err
 		}
+		n.logf("relay %s connected after %s", url, time.Since(start).Round(time.Millisecond))
 		return transport.Wrap(secure, transport.Info{Transport: transport.KindRelay, TLS: true}), transport.KindRelay, nil
 	}
-	if len(errs) == 0 {
-		return nil, "", fmt.Errorf("no QUIC candidates and no relay")
-	}
-	return nil, "", errors.Join(errs...)
 }
 
 func (n *Node) serveConn(ctx context.Context, c net.Conn, kind transport.Kind) {

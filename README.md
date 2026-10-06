@@ -12,7 +12,7 @@ boundaries. `SECURITY.md` describes what the token does and does not protect.
 ## Install
 
 GitHub Releases ship packages for both platforms. The snippets below install
-v0.2.11; background `ens invite` needs v0.2.6 or later.
+v0.2.12; background `ens invite` needs v0.2.6 or later.
 
 Every package installs the client only. The relay is separate, and you need it
 only if you run your own splice.
@@ -28,7 +28,7 @@ ens version
 macOS, from the installer package (double-click also works):
 
 ```bash
-ver=0.2.11
+ver=0.2.12
 case $(uname -m) in
 arm64) pkg_arch=arm64 ;;
 x86_64) pkg_arch=amd64 ;;
@@ -42,7 +42,7 @@ ens version
 macOS, from the tarball (replace `arm64` with `amd64` on Intel):
 
 ```bash
-ver=0.2.11
+ver=0.2.12
 curl -fsSL "https://github.com/fdaio/enserie/releases/download/v${ver}/ens-darwin-arm64.tar.gz" | tar -xz
 sudo install -m 755 ens /usr/local/bin/ens
 ens version
@@ -51,7 +51,7 @@ ens version
 Ubuntu / Debian (amd64 or arm64):
 
 ```bash
-ver=0.2.11
+ver=0.2.12
 arch=$(dpkg --print-architecture)
 curl -fsSL -o ens.deb \
   "https://github.com/fdaio/enserie/releases/download/v${ver}/ens_${ver}_${arch}.deb"
@@ -62,7 +62,7 @@ ens version
 Fedora, RHEL, openSUSE (amd64 or arm64):
 
 ```bash
-ver=0.2.11
+ver=0.2.12
 arch=$(uname -m)   # x86_64 or aarch64
 case "$arch" in
 x86_64) rpm_arch=amd64 ;;
@@ -78,7 +78,7 @@ Any other Linux, from the tarball. The binary is statically linked, so it runs
 on Alpine and on distributions without a package of their own:
 
 ```bash
-ver=0.2.11
+ver=0.2.12
 case $(uname -m) in
 x86_64 | amd64) goarch=amd64 ;;
 aarch64 | arm64) goarch=arm64 ;;
@@ -99,7 +99,7 @@ only if you run your own splice.
 Verify a download against the release checksum before running it:
 
 ```bash
-ver=0.2.11
+ver=0.2.12
 curl -fsSL -O "https://github.com/fdaio/enserie/releases/download/v${ver}/SHA256SUMS"
 shasum -a 256 -c SHA256SUMS
 ```
@@ -209,7 +209,7 @@ starts nothing: your program owns the process, the certificates, and the
 pairing, so it does the work that `ens` does around the node.
 
 ```bash
-go get github.com/fdaio/enserie@v0.2.11
+go get github.com/fdaio/enserie@v0.2.12
 ```
 
 ### Pairing
@@ -317,8 +317,8 @@ with the hosted splices when the token omits them.
 ```bash
 make test
 make build
-make dist-linux VERSION=0.2.11
-make dist-darwin VERSION=0.2.11
+make dist-linux VERSION=0.2.12
+make dist-darwin VERSION=0.2.12
 ```
 
 ## License

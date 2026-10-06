@@ -218,3 +218,18 @@ func TestDialRelayKeepsAnIdleLegAlive(t *testing.T) {
 		t.Fatal("dialRelay sent no bytes while idle, so the leg would be dropped")
 	}
 }
+
+// Cloudflare closes a proxied WebSocket after about a hundred seconds without
+// traffic. An idle leg waits out its pong before the next ping goes out, so it
+// is the interval plus the wait that has to stay under that limit, not the
+// interval alone.
+func TestKeepaliveStaysUnderTheIdleLimit(t *testing.T) {
+	const cloudflareIdle = 100 * time.Second
+	if relayPingInterval <= 0 {
+		t.Fatal("the ping interval is not positive")
+	}
+	if got := relayPingInterval + relayPingWait; got >= cloudflareIdle {
+		t.Errorf("interval %s plus wait %s reaches the %s idle limit, so an idle path would drop",
+			relayPingInterval, relayPingWait, cloudflareIdle)
+	}
+}

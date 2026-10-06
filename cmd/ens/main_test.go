@@ -40,3 +40,30 @@ func TestWrapStartOmitsNeedRootWhenRoot(t *testing.T) {
 		t.Fatalf("non-root should see need root: %s", s)
 	}
 }
+
+// Every run used to leave one ens-XXXXXXXX directory holding a private key in
+// the temporary directory, because nothing removed it.
+func TestEphemeralCertLeavesNothingBehind(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("TMPDIR", tmp)
+
+	cert, err := ephemeralCert()
+	if err != nil {
+		t.Fatalf("ephemeralCert: %v", err)
+	}
+	if len(cert.Certificate) == 0 {
+		t.Fatal("no certificate returned")
+	}
+
+	entries, err := os.ReadDir(tmp)
+	if err != nil {
+		t.Fatalf("read temp dir: %v", err)
+	}
+	if len(entries) != 0 {
+		var names []string
+		for _, e := range entries {
+			names = append(names, e.Name())
+		}
+		t.Errorf("ephemeralCert left %d entries behind: %v", len(entries), names)
+	}
+}

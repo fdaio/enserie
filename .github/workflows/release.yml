@@ -162,8 +162,8 @@ jobs:
             dist/SHA256SUMS
 
   # The tap is a separate repository, so this cannot use GITHUB_TOKEN, which is
-  # scoped to this one. TAP_TOKEN is a fine-grained token with write access to
-  # fdaio/homebrew-enserie and nothing else.
+  # scoped to this one. TAP_SSH_KEY holds the private half of a deploy key that
+  # has write access to fdaio/homebrew-enserie and to nothing else.
   #
   # This runs after publish on purpose. The release is already out, so a tap
   # failure leaves brew install on the previous version and says so, rather than
@@ -179,32 +179,60 @@ jobs:
           path: dist
       - name: Generate the formula
         run: ./scripts/homebrew-formula.sh "${GITHUB_REF_NAME#v}" arm64 dist/ens-darwin-arm64.tar.gz ens.rb
-      - name: Check the tap token
+      - name: Check the tap key
         env:
-          TAP_TOKEN: ${{ secrets.TAP_TOKEN }}
+          TAP_SSH_KEY: ${{ secrets.TAP_SSH_KEY }}
         run: |
           set -eu
-          if [ -z "${TAP_TOKEN:-}" ]; then
-            echo "TAP_TOKEN is not set, so the tap would keep serving the previous version." >&2
-            echo "Create a fine-grained token with write access to fdaio/homebrew-enserie" >&2
-            echo "and add it as the TAP_TOKEN secret of fdaio/enserie." >&2
+          if [ -z "${TAP_SSH_KEY:-}" ]; then
+            echo "TAP_SSH_KEY is not set, so the tap would keep serving the previous version." >&2
+            echo "Add it as the TAP_SSH_KEY secret of fdaio/enserie." >&2
+            echo "CONTRIBUTING.md describes the deploy key it must hold." >&2
             exit 1
           fi
       - name: Update the tap
         env:
-          TAP_TOKEN: ${{ secrets.TAP_TOKEN }}
+          TAP_SSH_KEY: ${{ secrets.TAP_SSH_KEY }}
         run: |
           set -eu
-          # An askpass script keeps the token out of the remote URL, which would
-          # otherwise be printed by git on a failed clone.
-          cat >"$RUNNER_TEMP/askpass.sh" <<'EOS'
-          #!/bin/sh
-          echo "x-access-token=$TAP_TOKEN"
-          EOS
-          chmod +x "$RUNNER_TEMP/askpass.sh"
-          export GIT_ASKPASS="$RUNNER_TEMP/askpass.sh" GIT_TERMINAL_PROMPT=0
+          # The key is written outside the checkout, so a later step cannot
+          # read it back out of the working tree.
+          (umask 077; printf '%s\n' "$TAP_SSH_KEY" >"$RUNNER_TEMP/tap_key")
 
-          git clone --depth 1 https://github.com/fdaio/homebrew-enserie.git tap
+          # The host key is compared with the fingerprints GitHub publishes
+          # before it is trusted, because a scan on its own accepts whatever
+          # the network answers with.
+          install -m 700 -d "$HOME/.ssh"
+          ssh-keyscan -t rsa,ecdsa,ed25519 github.com >"$RUNNER_TEMP/known_hosts" 2>/dev/null
+          ssh-keygen -lf "$RUNNER_TEMP/known_hosts" | awk '{print $2}' | sort -u >"$RUNNER_TEMP/scanned"
+          printf '%s\n' \
+            'SHA256:uNiVztksCsDhcc0u9e8BujQXVUpKZIDTMczCvj3tD2s' \
+            'SHA256:p2QAMXNIC1TJYWeIOttrVc98/R1BUFWu3/LiyKgUfQM' \
+            'SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU' | sort >"$RUNNER_TEMP/expected"
+          if [ ! -s "$RUNNER_TEMP/scanned" ]; then
+            echo "the GitHub host key could not be read" >&2
+            exit 1
+          fi
+          # ssh-keygen skips a line it cannot read, so the key line count is
+          # held against the fingerprint count. An entry that is not counted
+          # here must not reach the connection either. The scan writes a
+          # comment line above every key, so comments do not count.
+          keylines=$(awk '!/^#/ && NF {n++} END {print n+0}' "$RUNNER_TEMP/known_hosts")
+          listed=$(wc -l <"$RUNNER_TEMP/scanned" | tr -d ' ')
+          if [ "$keylines" -ne "$listed" ]; then
+            echo "a host key line could not be read" >&2
+            exit 1
+          fi
+          if grep -vxF -f "$RUNNER_TEMP/expected" "$RUNNER_TEMP/scanned"; then
+            echo "the GitHub host key does not match the fingerprint GitHub publishes" >&2
+            exit 1
+          fi
+          install -m 600 "$RUNNER_TEMP/known_hosts" "$HOME/.ssh/known_hosts"
+
+          # The key stays out of the remote URL, which git would otherwise
+          # print when a clone fails.
+          export GIT_SSH_COMMAND="ssh -i $RUNNER_TEMP/tap_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$HOME/.ssh/known_hosts"
+          git clone --depth 1 git@github.com:fdaio/homebrew-enserie.git tap
           cp ens.rb tap/Formula/ens.rb
           cd tap
           git config user.name "fdaio"

@@ -67,3 +67,30 @@ func TestEphemeralCertLeavesNothingBehind(t *testing.T) {
 		t.Errorf("ephemeralCert left %d entries behind: %v", len(entries), names)
 	}
 }
+
+// The command the peer runs must not name a path. The peer may have installed
+// with a different package manager, at a different prefix, or not at all, and
+// this machine's path is wrong on every one of those.
+func TestAcceptCommandNamesNoPath(t *testing.T) {
+	got := acceptCommand("TOKEN")
+	if got != "sudo ens accept TOKEN" {
+		t.Fatalf("acceptCommand = %q, want %q", got, "sudo ens accept TOKEN")
+	}
+	if strings.ContainsAny(got, "/\\") {
+		t.Fatalf("acceptCommand names a path: %q", got)
+	}
+	if self := selfPath(); self != "" && strings.Contains(got, self) {
+		t.Fatalf("acceptCommand carries this machine's path %q: %q", self, got)
+	}
+}
+
+// The commands a reader runs here do need the path, because sudo drops PATH.
+func TestSudoCommandIsForThisMachine(t *testing.T) {
+	got := sudoCommand("down")
+	if !strings.HasPrefix(got, "sudo ") {
+		t.Fatalf("sudoCommand = %q, want a sudo command", got)
+	}
+	if self := selfPath(); self != "" && !strings.Contains(got, self) {
+		t.Fatalf("sudoCommand = %q, want it to name %q", got, self)
+	}
+}

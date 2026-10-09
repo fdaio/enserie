@@ -11,110 +11,60 @@ boundaries. `SECURITY.md` describes what the token does and does not protect.
 
 ## Install
 
-GitHub Releases ship packages for both platforms. The snippets below install
-v0.2.16; background `ens invite` needs v0.2.6 or later.
+The snippets below install v0.2.16; background `ens invite` needs v0.2.6 or
+later. Every package installs the client only; the relay is separate, and you
+need it only if you run your own splice.
 
-Every package installs the client only. The relay is separate, and you need it
-only if you run your own splice.
-
-macOS or Linux, with Homebrew:
+With Homebrew, on macOS or Linux, on Apple Silicon or Intel:
 
 ```bash
 brew tap fdaio/enserie
 brew install fdaio/enserie/ens
-ens version
 ```
 
-The formula serves macOS and Linux, on both Apple Silicon and Intel.
-
-macOS, from the installer package (double-click also works):
+Without Homebrew, set the version and pick your platform. The download URL is
+the same for every package; only the architecture differs.
 
 ```bash
 ver=0.2.16
-case $(uname -m) in
-arm64) pkg_arch=arm64 ;;
-x86_64) pkg_arch=amd64 ;;
-esac
-curl -fsSL -o ens.pkg \
-  "https://github.com/fdaio/enserie/releases/download/v${ver}/ens_${ver}_${pkg_arch}.pkg"
-sudo installer -pkg ens.pkg -target /
-ens version
+rel=https://github.com/fdaio/enserie/releases/download/v${ver}
+arch=arm64   # or amd64 on Intel
 ```
 
-macOS, from the tarball (replace `arm64` with `amd64` on Intel):
+| Platform | Command |
+|---|---|
+| macOS | `curl -fsSLO "$rel/ens_${ver}_${arch}.pkg"`<br>`sudo installer -pkg "ens_${ver}_${arch}.pkg" -target /` |
+| Debian, Ubuntu | `curl -fsSLO "$rel/ens_${ver}_$(dpkg --print-architecture).deb"`<br>`sudo dpkg -i "ens_${ver}_$(dpkg --print-architecture).deb"` |
+| Fedora, RHEL, openSUSE | `curl -fsSLO "$rel/ens_${ver}_${arch}.rpm"`<br>`sudo dnf install -y "ens_${ver}_${arch}.rpm"` |
+| Any other Linux | `curl -fsSL "$rel/ens-linux-${arch}.tar.gz" \| tar -xz`<br>`sudo install -m 755 ens /usr/local/bin/` |
 
-```bash
-ver=0.2.16
-curl -fsSL "https://github.com/fdaio/enserie/releases/download/v${ver}/ens-darwin-arm64.tar.gz" | tar -xz
-sudo install -m 755 ens /usr/local/bin/ens
-ens version
-```
+On Debian and Ubuntu, `dpkg --print-architecture` already prints `amd64` or
+`arm64`, so that row needs no `arch`. Elsewhere `uname -m` prints `x86_64` or
+`aarch64`, which is why those rows need it set by hand.
 
-Ubuntu / Debian (amd64 or arm64):
+The Linux tarball is statically linked, so it also runs on Alpine and on any
+distribution without a package of its own.
 
-```bash
-ver=0.2.16
-arch=$(dpkg --print-architecture)
-curl -fsSL -o ens.deb \
-  "https://github.com/fdaio/enserie/releases/download/v${ver}/ens_${ver}_${arch}.deb"
-sudo dpkg -i ens.deb
-ens version
-```
-
-Fedora, RHEL, openSUSE (amd64 or arm64):
-
-```bash
-ver=0.2.16
-arch=$(uname -m)   # x86_64 or aarch64
-case "$arch" in
-x86_64) rpm_arch=amd64 ;;
-aarch64) rpm_arch=arm64 ;;
-esac
-curl -fsSL -o ens.rpm \
-  "https://github.com/fdaio/enserie/releases/download/v${ver}/ens_${ver}_${rpm_arch}.rpm"
-sudo dnf install -y ./ens.rpm || sudo rpm -i ens.rpm
-ens version
-```
-
-Any other Linux, from the tarball. The binary is statically linked, so it runs
-on Alpine and on distributions without a package of their own:
-
-```bash
-ver=0.2.16
-case $(uname -m) in
-x86_64 | amd64) goarch=amd64 ;;
-aarch64 | arm64) goarch=arm64 ;;
-esac
-curl -fsSL "https://github.com/fdaio/enserie/releases/download/v${ver}/ens-linux-${goarch}.tar.gz" | tar -xz
-sudo install -m 755 ens /usr/local/bin/ens
-ens version
-```
+Double-clicking the macOS `.pkg` installs the same way.
 
 There is no Arch package. Arch is not Debian-based and the AUR is maintained by
 the community, so the tarball above is the route. Writing a PKGBUILD is one
 small file if you want to add it.
 
-TUN setup needs root (`CAP_NET_ADMIN`). Relay traffic reuses tyd's hosted
-splices (`relay-1.getfda.dev`, `relay-2.getfda.dev`). Pack `enserie-relay`
-only if you run your own splice.
-
-Verify a download against the release checksum before running it:
+To check a download before running it:
 
 ```bash
-ver=0.2.16
-curl -fsSL -O "https://github.com/fdaio/enserie/releases/download/v${ver}/SHA256SUMS"
-shasum -a 256 -c SHA256SUMS
+curl -fsSLO "$rel/SHA256SUMS"
+sha256sum -c SHA256SUMS --ignore-missing
 ```
 
-The file lists every asset, so check the ones you downloaded:
+Each file you downloaded should report `OK`. `--ignore-missing` skips the assets
+you did not download, and the exit code stays 0 as long as every file that is
+present matches. Homebrew checks the checksum for you. On macOS, use
+`shasum -a 256` in place of `sha256sum`.
 
-```bash
-shasum -a 256 -c SHA256SUMS --ignore-missing
-```
-
-Read the output: `OK` per file is what you want. `--ignore-missing` skips the
-assets you did not download, and the exit code stays 0 as long as every file
-that *is* present matches.
+Running the overlay needs root (`CAP_NET_ADMIN`). Relay traffic uses tyd's
+hosted splices (`relay-1.getfda.dev`, `relay-2.getfda.dev`).
 
 ## Commands
 

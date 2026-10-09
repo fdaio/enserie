@@ -213,7 +213,7 @@ func runInvite(subnet, advertise string) error {
 	}
 	fmt.Fprintf(os.Stderr, "ens: tun %s overlay %s  peer will be %s\n", n.DeviceName(), n.LocalIP(), n.PeerIP())
 	fmt.Fprintf(os.Stderr, "ens: on the other machine run:\n\n")
-	fmt.Printf("%s\n\n", sudoCommand("accept", token))
+	fmt.Printf("%s\n\n", acceptCommand(token))
 	go reportPath(ctx, n)
 	<-ctx.Done()
 	return nil
@@ -315,6 +315,14 @@ func parseCIDR(cidr string) (net.IP, *net.IPNet, error) {
 		return nil, nil, fmt.Errorf("overlay requires IPv4, got %s", cidr)
 	}
 	return v4, n, nil
+}
+
+// acceptCommand renders the command the peer runs. It names no path, because
+// the peer may have installed somewhere else or not at all. sudoCommand fits
+// the commands a reader runs here, where the path is this machine's and the
+// secure_path is what loses it.
+func acceptCommand(token string) string {
+	return "sudo ens accept " + token
 }
 
 func wrapStart(err error) error {

@@ -200,7 +200,7 @@ func runInvite(subnet, advertise string) error {
 	}
 	fmt.Fprintf(os.Stderr, "ens: tun %s overlay %s  peer will be %s\n", n.DeviceName(), n.LocalIP(), n.PeerIP())
 	fmt.Fprintf(os.Stderr, "ens: on the other machine run:\n\n")
-	fmt.Printf("sudo ens accept %s\n\n", token)
+	fmt.Printf("%s\n\n", sudoCommand("accept", token))
 	go reportPath(ctx, n)
 	<-ctx.Done()
 	return nil
@@ -306,7 +306,10 @@ func parseCIDR(cidr string) (net.IP, *net.IPNet, error) {
 
 func wrapStart(err error) error {
 	if os.Geteuid() != 0 {
-		return fmt.Errorf("tun/listen: %w (need root)", err)
+		// Naming the command matters more than saying "need root": a reader
+		// who is told only that retries as root still types "sudo ens", which
+		// a Homebrew install cannot resolve.
+		return fmt.Errorf("tun/listen: %w (need root); run it as root: %s", err, sudoCommand(os.Args[1:]...))
 	}
 	return fmt.Errorf("tun/listen: %w", err)
 }

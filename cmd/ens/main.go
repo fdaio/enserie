@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -52,6 +53,17 @@ func main() {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
+	case "status":
+		// A script asks status to find out whether the overlay is up, so an
+		// exit code answers that without parsing the message.
+		if err := runStatus(os.Stdout); err != nil {
+			if errors.Is(err, errNotRunning) {
+				fmt.Fprintln(os.Stderr, "ens: not running")
+				os.Exit(1)
+			}
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
 	default:
 		usage()
 		os.Exit(2)
@@ -62,6 +74,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "usage: ens invite [--subnet CIDR]")
 	fmt.Fprintln(os.Stderr, "       ens accept TOKEN")
 	fmt.Fprintln(os.Stderr, "       ens down")
+	fmt.Fprintln(os.Stderr, "       ens status")
 	fmt.Fprintln(os.Stderr, "       ens version")
 }
 

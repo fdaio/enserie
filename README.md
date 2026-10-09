@@ -1,6 +1,6 @@
 # enserie
 
-P2P overlay network: QUIC first, relay as fallback. The command is `ens`.
+A2Z overlay network: QUIC first, relay as fallback. The command is `ens`.
 
 Two machines share an IPv4 `/30` and reach each other as if they were on a LAN.
 Direct QUIC is preferred. When NAT blocks it, a blind WebSocket relay splices

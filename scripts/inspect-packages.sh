@@ -132,19 +132,29 @@ darwin)
 			check_client_only "$PKG" printf '%s\n' "$paths"
 			;;
 		formula)
-			# The formula names one release's tarball. A stale checksum only
-			# fails for whoever tries to install, so check it here.
+			# The formula names one tarball per platform and architecture. A
+			# stale or missing entry fails only for whoever tries to install,
+			# so check all four here.
 			need dist/ens.rb
-			[ "$ARCH" = arm64 ] || fail "the generated formula is for arm64, not ${ARCH}"
-			need "$DARWIN_TARBALL"
-			grep -q "v${VERSION}/ens-darwin-arm64.tar.gz" dist/ens.rb \
-				|| fail "dist/ens.rb does not name the v${VERSION} tarball"
-			if command -v sha256sum >/dev/null; then
-				want=$(sha256sum "$DARWIN_TARBALL" | cut -d' ' -f1)
-			else
-				want=$(shasum -a 256 "$DARWIN_TARBALL" | cut -d' ' -f1)
-			fi
-			grep -q "$want" dist/ens.rb || fail "dist/ens.rb checksum is stale"
+			check_formula_entry() {
+				entry=$1
+				tarball="dist/ens-$entry.tar.gz"
+				need "$tarball"
+				grep -q "v${VERSION}/ens-$entry.tar.gz" dist/ens.rb \
+					|| fail "dist/ens.rb does not name the v${VERSION} $entry tarball"
+				if command -v sha256sum >/dev/null; then
+					want=$(sha256sum "$tarball" | cut -d' ' -f1)
+				else
+					want=$(shasum -a 256 "$tarball" | cut -d' ' -f1)
+				fi
+				grep -q "$want" dist/ens.rb \
+					|| fail "dist/ens.rb checksum for $entry is stale"
+			}
+			for entry in \
+				darwin-arm64 darwin-amd64 linux-arm64 linux-amd64
+			do
+				check_formula_entry "$entry"
+			done
 			# brew style is what a tap submission is checked against.
 			command -v brew >/dev/null || fail "brew not found"
 			brew style dist/ens.rb >/dev/null || fail "dist/ens.rb fails brew style"

@@ -93,12 +93,15 @@ jobs:
           cache: true
       - name: Package
         run: make dist-darwin VERSION="${GITHUB_REF_NAME#v}"
+      # This runner cannot produce the Linux tarballs the release ships, so
+      # it does not check the formula. The publish job checks it, where all
+      # four tarballs exist.
       - name: Inspect packages
         run: |
           set -eu
           codesign -dv dist/darwin-arm64/ens 2>&1 | grep -qi adhoc
           dist/darwin-arm64/ens version
-          ./scripts/inspect-packages.sh "${GITHUB_REF_NAME#v}" arm64 darwin
+          ./scripts/inspect-packages.sh "${GITHUB_REF_NAME#v}" arm64 darwin tarball pkg
       - uses: actions/upload-artifact@v4
         with:
           name: darwin
@@ -106,7 +109,6 @@ jobs:
             dist/ens-darwin-*.tar.gz
             dist/enserie-relay-darwin-*.tar.gz
             dist/ens_*.pkg
-            dist/ens.rb
           if-no-files-found: error
 
   publish:
@@ -118,6 +120,24 @@ jobs:
         with:
           merge-multiple: true
           path: dist
+      # The formula names all four tarballs, so it can only be generated here.
+      # The darwin job cannot do it: a tarball built on this runner carries
+      # this runner's timestamps, so its checksum is not the checksum of the
+      # asset a user downloads.
+      - name: Generate the formula
+        run: ./scripts/homebrew-formula.sh "${GITHUB_REF_NAME#v}" dist dist/ens.rb
+      # brew style runs here because this is the one job that holds all four
+      # tarballs. Homebrew is preinstalled on the Ubuntu runner but is not on
+      # PATH, so the shell environment has to be loaded first.
+      - name: Check the formula
+        run: |
+          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+          ./scripts/inspect-packages.sh "${GITHUB_REF_NAME#v}" arm64 darwin formula
+      - uses: actions/upload-artifact@v4
+        with:
+          name: formula
+          path: dist/ens.rb
+          if-no-files-found: error
       # Every download path in the README names one of these files. A release
       # that is missing one installs on fewer platforms than the README claims,
       # and nobody notices until a user tries. This v0.2.10 shipped with no rpm
@@ -169,16 +189,16 @@ jobs:
   # failure leaves brew install on the previous version and says so, rather than
   # holding a finished release hostage.
   tap:
-    needs: [publish, dist-darwin]
+    needs: [publish]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # The formula is the one the release checked and published, so the tap
+      # cannot serve a different one than the release page describes.
       - uses: actions/download-artifact@v4
         with:
-          name: darwin
+          name: formula
           path: dist
-      - name: Generate the formula
-        run: ./scripts/homebrew-formula.sh "${GITHUB_REF_NAME#v}" arm64 dist/ens-darwin-arm64.tar.gz ens.rb
       - name: Check the tap key
         env:
           TAP_SSH_KEY: ${{ secrets.TAP_SSH_KEY }}
@@ -233,7 +253,7 @@ jobs:
           # print when a clone fails.
           export GIT_SSH_COMMAND="ssh -i $RUNNER_TEMP/tap_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$HOME/.ssh/known_hosts"
           git clone --depth 1 git@github.com:fdaio/homebrew-enserie.git tap
-          cp ens.rb tap/Formula/ens.rb
+          cp dist/ens.rb tap/Formula/ens.rb
           cd tap
           git config user.name "fdaio"
           git config user.email "noreply@getfda.dev"

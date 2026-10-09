@@ -17,13 +17,15 @@ v0.2.15; background `ens invite` needs v0.2.6 or later.
 Every package installs the client only. The relay is separate, and you need it
 only if you run your own splice.
 
-macOS, with Homebrew:
+macOS or Linux, with Homebrew:
 
 ```bash
 brew tap fdaio/enserie
 brew install fdaio/enserie/ens
 ens version
 ```
+
+The formula serves macOS and Linux, on both Apple Silicon and Intel.
 
 macOS, from the installer package (double-click also works):
 

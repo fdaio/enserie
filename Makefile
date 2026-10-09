@@ -52,7 +52,7 @@ dist-linux: dist-linux-checksums
 	ls -lh dist/*.deb dist/ens-linux-*.tar.gz dist/enserie-relay-linux-*.tar.gz dist/SHA256SUMS
 
 dist-darwin: dist-darwin-checksums
-	ls -lh dist/ens-darwin-*.tar.gz dist/enserie-relay-darwin-*.tar.gz dist/ens_*.pkg dist/ens.rb dist/SHA256SUMS
+	ls -lh dist/ens-darwin-*.tar.gz dist/enserie-relay-darwin-*.tar.gz dist/ens_*.pkg dist/SHA256SUMS
 
 dist-linux-bins: \
 	dist/linux-amd64/ens \
@@ -139,13 +139,19 @@ else
 	./scripts/pack-pkg.sh "$(VERSION)" amd64 dist/darwin-amd64/ens dist/ens_$(VERSION)_amd64.pkg
 endif
 
-# A formula is only correct once the tarball it names exists, so generate it
-# from the release tarball rather than keeping a checked-in copy to update.
-dist-homebrew: dist-darwin-archives
-	./scripts/homebrew-formula.sh "$(VERSION)" arm64 dist/ens-darwin-arm64.tar.gz dist/ens.rb
+# A formula is only correct once the tarballs it names exist, so generate it
+# from them rather than keeping a checked-in copy to update. It needs both
+# platforms, because Homebrew serves macOS and Linux from one formula.
+#
+# This target is for local checks. The release generates the formula in the
+# publish job, which holds the tarballs that were actually released. The
+# archives built here carry this machine's timestamps, so their checksums
+# differ from the released assets.
+dist-homebrew: dist-darwin-archives dist-linux-archives
+	./scripts/homebrew-formula.sh "$(VERSION)" dist dist/ens.rb
 
 dist-linux-checksums: dist-linux-archives dist-deb
 	cd dist && $(HASH) $$(ls *.deb ens-linux-*.tar.gz enserie-relay-linux-*.tar.gz 2>/dev/null) > SHA256SUMS
 
-dist-darwin-checksums: dist-darwin-archives dist-pkg dist-homebrew
-	cd dist && $(HASH) $$(ls ens-darwin-*.tar.gz enserie-relay-darwin-*.tar.gz ens_*.pkg ens.rb 2>/dev/null) > SHA256SUMS
+dist-darwin-checksums: dist-darwin-archives dist-pkg
+	cd dist && $(HASH) $$(ls ens-darwin-*.tar.gz enserie-relay-darwin-*.tar.gz ens_*.pkg 2>/dev/null) > SHA256SUMS

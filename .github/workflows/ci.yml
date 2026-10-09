@@ -116,8 +116,12 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      # The formula names a Linux tarball too, so build those archives here.
+      # Their checksums differ from the released ones, because a tar records
+      # the mtime of its members. What this job checks is that the formula
+      # names every platform and matches the archives next to it.
       - name: Package
-        run: make dist-darwin VERSION=0.0.0ci
+        run: make dist-darwin dist-homebrew VERSION=0.0.0ci
       - name: Inspect packages
         run: ./scripts/inspect-packages.sh 0.0.0ci arm64 darwin
 

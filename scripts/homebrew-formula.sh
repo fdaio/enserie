@@ -1,51 +1,84 @@
 #!/bin/sh
-# Generate a Homebrew formula for one release tarball.
+# Generate a Homebrew formula for one release.
 #
 # The formula has to name a version and a checksum, and neither is known until
 # the release tarball exists. Generating the formula from the tarball keeps the
 # two from drifting apart, which is what makes a checked-in formula wrong one
 # release later.
 #
-# Usage: homebrew-formula.sh VERSION ARCH TARBALL OUT
-#   ARCH    arm64 or amd64
-#   TARBALL the ens-darwin-<arch>.tar.gz from the release
+# Homebrew serves macOS and Linux from one formula, so every platform and
+# architecture needs its own URL and checksum. A formula that names a single
+# tarball installs that one binary everywhere, which puts a macOS binary on a
+# Linux host.
+#
+# The tarballs must be the ones the release publishes. A tarball built on
+# another host is a different file, because tar records the mtime of its
+# members, so its checksum does not match the asset a user downloads.
+#
+# Usage: homebrew-formula.sh VERSION DIST OUT
+#   VERSION the release version, such as 0.2.15
+#   DIST    directory holding the four ens-<os>-<arch>.tar.gz files
+#   OUT     the formula file to write
 set -eu
 
-if [ "$#" -lt 4 ]; then
-	echo "usage: homebrew-formula.sh VERSION ARCH TARBALL OUT" >&2
+if [ "$#" -lt 3 ]; then
+	echo "usage: homebrew-formula.sh VERSION DIST OUT" >&2
 	exit 2
 fi
 
 VERSION=$1
-ARCH=$2
-TARBALL=$3
-OUT=$4
+DIST=$2
+OUT=$3
 
-case "$ARCH" in
-amd64 | arm64) ;;
-*)
-	echo "unsupported formula arch: $ARCH" >&2
-	exit 2
-	;;
-esac
+TARBALLS="darwin-arm64 darwin-amd64 linux-arm64 linux-amd64"
 
-if [ ! -f "$TARBALL" ]; then
-	echo "missing tarball: $TARBALL" >&2
-	exit 2
-fi
+for entry in $TARBALLS; do
+	if [ ! -f "$DIST/ens-$entry.tar.gz" ]; then
+		echo "missing tarball: $DIST/ens-$entry.tar.gz" >&2
+		exit 2
+	fi
+done
 
-# The release runner is macOS, so shasum is the tool there. sha256sum covers
-# a Linux run for anyone generating the formula elsewhere.
+# The release generates the formula on Ubuntu, where sha256sum is the tool.
+# shasum covers a macOS run for anyone generating it locally.
 if command -v sha256sum >/dev/null 2>&1; then
-	SHA=$(sha256sum "$TARBALL" | cut -d' ' -f1)
+	sha256_of() { sha256sum "$1" | cut -d' ' -f1; }
 else
-	SHA=$(shasum -a 256 "$TARBALL" | cut -d' ' -f1)
+	sha256_of() { shasum -a 256 "$1" | cut -d' ' -f1; }
 fi
+
+base="https://github.com/fdaio/enserie/releases/download/v${VERSION}"
+
+# One platform and its two architectures. Homebrew reads on_macos or on_linux
+# to pick the branch, and on_arm or on_intel to pick the binary inside it. A
+# formula may carry only one block per platform, so the two architectures are
+# nested inside it.
+block() {
+	os=$1
+	brew_os=$2
+	cat <<EOF
+  on_${brew_os} do
+    on_arm do
+      url "${base}/ens-${os}-arm64.tar.gz"
+      sha256 "$(sha256_of "$DIST/ens-${os}-arm64.tar.gz")"
+    end
+
+    on_intel do
+      url "${base}/ens-${os}-amd64.tar.gz"
+      sha256 "$(sha256_of "$DIST/ens-${os}-amd64.tar.gz")"
+    end
+  end
+
+EOF
+}
 
 mkdir -p "$(dirname "$OUT")"
 # The first two lines are what brew style asks for, so the generated formula
 # passes brew style without a later fix-up commit.
-cat >"$OUT" <<EOF
+# The version is written out because Homebrew cannot infer it from four URLs
+# that all name a differently suffixed file.
+{
+	cat <<EOF
 # typed: strict
 # frozen_string_literal: true
 
@@ -53,9 +86,13 @@ cat >"$OUT" <<EOF
 class Ens < Formula
   desc "P2P overlay network: QUIC first, relay as fallback"
   homepage "https://github.com/fdaio/enserie"
-  url "https://github.com/fdaio/enserie/releases/download/v${VERSION}/ens-darwin-${ARCH}.tar.gz"
-  sha256 "$SHA"
+  version "${VERSION}"
 
+EOF
+	block darwin macos
+	block linux linux
+
+	cat <<'EOF'
   def install
     bin.install "ens"
   end
@@ -68,4 +105,5 @@ class Ens < Formula
   end
 end
 EOF
-echo "wrote $OUT for v$VERSION ($ARCH)" >&2
+} >"$OUT"
+echo "wrote $OUT for v$VERSION" >&2

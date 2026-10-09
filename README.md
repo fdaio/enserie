@@ -11,7 +11,7 @@ boundaries. `SECURITY.md` describes what the token does and does not protect.
 
 ## Install
 
-The snippets below install v0.2.16; background `ens invite` needs v0.2.6 or
+The snippets below install v0.2.17; background `ens invite` needs v0.2.6 or
 later. Every package installs the client only; the relay is separate, and you
 need it only if you run your own splice.
 
@@ -26,7 +26,7 @@ Without Homebrew, set the version and pick your platform. The download URL is
 the same for every package; only the architecture differs.
 
 ```bash
-ver=0.2.16
+ver=0.2.17
 rel=https://github.com/fdaio/enserie/releases/download/v${ver}
 arch=arm64   # or amd64 on Intel
 ```
@@ -181,7 +181,7 @@ starts nothing: your program owns the process, the certificates, and the
 pairing, so it does the work that `ens` does around the node.
 
 ```bash
-go get github.com/fdaio/enserie@v0.2.16
+go get github.com/fdaio/enserie@v0.2.17
 ```
 
 ### Pairing
@@ -289,8 +289,8 @@ with the hosted splices when the token omits them.
 ```bash
 make test
 make build
-make dist-linux VERSION=0.2.16
-make dist-darwin VERSION=0.2.16
+make dist-linux VERSION=0.2.17
+make dist-darwin VERSION=0.2.17
 ```
 
 ## License

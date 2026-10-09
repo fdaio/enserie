@@ -110,6 +110,26 @@ After the first path is up, the parent prints a pid and returns the shell.
 The worker keeps the TUN. `sudo ens down` stops it. Later path logs go to
 `/run/ens.log`, or `/var/run/ens.log` on macOS, which has no `/run`.
 
+`ens status` reports what is running and shows the tail of that log. It reads
+the lock and the log rather than asking the worker, so it works without root
+even when the worker runs as root:
+
+```console
+$ ens status
+  state:   running (pid 16467, as root)
+  log:     /run/ens.log
+
+  ens: tun enserie0 overlay 198.19.152.177
+  ens: connected via quic
+
+sudo /opt/homebrew/bin/ens down stops it.
+```
+
+It exits 1 and prints `ens: not running` when no worker is up, so a script can
+ask without parsing the output. The connection path and the overlay addresses
+are not in the output because the worker keeps them in memory and does not
+write them anywhere.
+
 Installing a new version does not change a running one. A package manager
 replaces the file on disk, and the running worker keeps the code it started
 with, so a worker that is stuck keeps the bug it was started with. If `ens

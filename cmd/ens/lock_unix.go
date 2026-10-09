@@ -88,7 +88,7 @@ func acquireInstanceLockAt(path string) (*os.File, error) {
 	}
 	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		_ = f.Close()
-		return nil, fmt.Errorf("ens already running; stop it first with: sudo ens down")
+		return nil, fmt.Errorf("ens already running; stop it first with: %s", sudoCommand("down"))
 	}
 	if err := writeLockPID(f, os.Getpid()); err != nil {
 		_ = f.Close()

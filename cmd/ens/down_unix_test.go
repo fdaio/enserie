@@ -99,10 +99,24 @@ func TestDownErrorNamesTheRunningRootInstance(t *testing.T) {
 	}
 
 	err := downError(errNotRunning, other)
-	if !strings.Contains(err.Error(), "sudo ens down") {
-		t.Errorf("error = %v, want it to name sudo ens down", err)
+	// The remedy has to be a command the reader can run. A bare "ens" is not
+	// one, because sudo does not search the Homebrew bin directory.
+	msg := err.Error()
+	if !strings.Contains(msg, "sudo") || !strings.Contains(msg, "down") {
+		t.Errorf("error = %v, want it to name a sudo command that stops ens", err)
 	}
-	if !strings.Contains(err.Error(), strconv.Itoa(os.Getpid())) {
+	// The pid sits in parentheses, so the field index of the path depends on
+	// how many words precede it. Look for any absolute path instead.
+	var named bool
+	for _, f := range strings.Fields(msg) {
+		if filepath.IsAbs(f) {
+			named = true
+		}
+	}
+	if !named {
+		t.Errorf("error = %v, want the command to name the binary by absolute path", err)
+	}
+	if !strings.Contains(msg, strconv.Itoa(os.Getpid())) {
 		t.Errorf("error = %v, want it to name the pid", err)
 	}
 }

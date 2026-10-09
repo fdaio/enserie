@@ -27,7 +27,7 @@ func runDown() error {
 		}
 		if sigErr := proc.Signal(syscall.SIGTERM); sigErr != nil {
 			if errors.Is(sigErr, syscall.EPERM) {
-				return fmt.Errorf("ens is running as another user (pid %d); stop it with: sudo ens down", pid)
+				return fmt.Errorf("ens is running as another user (pid %d); stop it with: %s", pid, sudoCommand("down"))
 			}
 			return sigErr
 		}
@@ -54,7 +54,7 @@ func downError(err error, other string) error {
 	}
 	if other != "" {
 		if pid, otherErr := readWorkerPIDAt(other); otherErr == nil && isLive(pid) {
-			return fmt.Errorf("ens is running as root (pid %d); stop it with: sudo ens down", pid)
+			return fmt.Errorf("ens is running as root (pid %d); stop it with: %s", pid, sudoCommand("down"))
 		}
 	}
 	return err

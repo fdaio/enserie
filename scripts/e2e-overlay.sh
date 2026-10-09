@@ -123,7 +123,10 @@ for _ in $(seq 1 100); do
   sleep 0.2
 done
 sed 's/^/  /' "$RUN_DIR/invite.err"
-token=$(sed -n 's/^sudo ens accept //p' "$RUN_DIR/invite.out" | head -1)
+# The invite line names the binary by absolute path, because that is the only
+# form of "sudo ens" a Homebrew install can run. Match the token after the
+# subcommand rather than after a fixed prefix.
+token=$(sed -n 's/^sudo .*ens accept //p' "$RUN_DIR/invite.out" | head -1)
 [ -n "$token" ] || { echo "no invite token appeared" >&2; exit 1; }
 overlay_a=$(sed -n 's/.*overlay \([0-9.]*\).*/\1/p' "$RUN_DIR/invite.err" | head -1)
 

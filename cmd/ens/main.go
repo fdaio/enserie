@@ -298,6 +298,7 @@ func runInvite(opts inviteOptions) error {
 	inv := overlay.Invite{
 		V:      1,
 		Mode:   opts.mode,
+		Exp:    time.Now().Add(overlay.InviteTTL).Unix(),
 		ID:     id,
 		FP:     fp,
 		CIDR:   inviteCIDR,
@@ -316,6 +317,8 @@ func runInvite(opts inviteOptions) error {
 	}
 	fmt.Fprintf(os.Stderr, "ens: on the other machine run:\n\n")
 	fmt.Printf("%s\n\n", acceptCommand(token, opts.mode))
+	expires := time.Unix(inv.Exp, 0)
+	fmt.Fprintf(os.Stderr, "ens: token expires at %s\n", expires.Format("15:04"))
 	go reportPath(ctx, n)
 	<-ctx.Done()
 	return nil
@@ -412,20 +415,46 @@ func newProxy(addr string, localIP net.IP) (*proxy.Server, error) {
 	return ps, nil
 }
 
+const (
+	// peerWaitNotice is when the second waiting line appears.
+	peerWaitNotice = 10 * time.Second
+	peerWaitPoll   = 200 * time.Millisecond
+)
+
 func reportPath(ctx context.Context, n *overlay.Node) {
+	if !reportPathTo(ctx, n.Path, os.Stderr, peerWaitNotice, peerWaitPoll) {
+		return
+	}
+	if isWorker() {
+		redirectLogs()
+		notifyConnected()
+	}
+}
+
+// reportPathTo writes connection progress until a path is up. It returns true
+// when a path is up. The caller then redirects logs and notifies the
+// supervisor.
+func reportPathTo(ctx context.Context, path func() transport.Kind, out io.Writer, progressAfter, poll time.Duration) bool {
+	start := time.Now()
+	waiting := false
+	progress := false
 	for {
-		if k := n.Path(); k != "" {
-			fmt.Fprintf(os.Stderr, "ens: connected via %s\n", k)
-			if isWorker() {
-				redirectLogs()
-				notifyConnected()
-			}
-			return
+		if k := path(); k != "" {
+			fmt.Fprintf(out, "ens: connected via %s\n", k)
+			return true
+		}
+		if !waiting {
+			fmt.Fprintln(out, "ens: waiting for peer (Ctrl-C to cancel)")
+			waiting = true
+		}
+		if !progress && progressAfter > 0 && time.Since(start) >= progressAfter {
+			fmt.Fprintf(out, "ens: still waiting for peer (%s)\n", progressAfter)
+			progress = true
 		}
 		select {
 		case <-ctx.Done():
-			return
-		case <-time.After(200 * time.Millisecond):
+			return false
+		case <-time.After(poll):
 		}
 	}
 }

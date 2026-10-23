@@ -9,17 +9,20 @@ and the token carries a 16-byte shared secret in the clear.
 Treat a token like a password:
 
 ```bash
-sudo ens accept TOKEN
+ens accept TOKEN
 ```
 
-Anyone who reads that token holds the secret and can impersonate the accepting
-node. `docs/protocol.md` describes the fields and which side checks what.
+TUN mode uses `sudo ens accept TOKEN` because it opens a TUN interface. The
+token itself is the same in both modes. Anyone who reads it holds the secret
+and can impersonate the accepting node. `docs/protocol.md` describes the fields
+and which side checks what.
 
 ## What is protected
 
-Overlay packets are inside TLS 1.3 on both paths. Direct QUIC pins the peer
-certificate fingerprint; a relayed connection is wrapped in TLS right after the
-relay splices it. The relay copies ciphertext and never sees a packet body.
+TUN packets and proxy streams are inside TLS 1.3 on both paths. Direct QUIC
+pins the peer certificate fingerprint; a relayed connection is wrapped in TLS
+right after the relay splices it. The relay copies ciphertext and never sees a
+packet body or a proxy stream.
 
 Certificate pinning means a network observer cannot present another
 certificate, and no certificate authority is involved.
@@ -51,6 +54,15 @@ self-signed certificate to a temporary directory on every start, so a restart
 produces a new fingerprint. There is no revocation list and no rotation
 schedule.
 
+**The SOCKS5 listener has no authentication.** It binds `127.0.0.1:1080` by
+default, so any local process can use it. A different `--socks-listen` address
+exposes the same access to every host that can reach that address.
+
+**A token holder can reach any TCP target the peer can reach.** The peer dials
+the target from its own network position. Its host firewall, routing table, and
+service bindings are the only target policy. Proxy mode does not add an allow
+list.
+
 **Traffic size and timing are visible to the network.** TLS hides the contents,
 not the envelope.
 
@@ -66,9 +78,11 @@ not own.
 
 - Run `ens invite` on a host you trust the operator of. The inviting host
   accepts whichever peer presents the secret.
-- Both nodes need root or `CAP_NET_ADMIN` to open the TUN, so the process is
-  privileged. Only run the binary you built or fetched from a release you
-  checked.
+- TUN mode needs root or `CAP_NET_ADMIN`, so that process is privileged. Proxy
+  mode runs as your user. Only run the binary you built or fetched from a
+  release you checked.
+- Keep the SOCKS5 listener on loopback unless you trust every host that can
+  reach it. A SOCKS5 listener has no authentication of its own.
 - Each release publishes `SHA256SUMS`. Verify it after downloading:
 
   ```bash

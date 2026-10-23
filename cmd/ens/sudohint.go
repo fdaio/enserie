@@ -16,13 +16,19 @@ import (
 // left with an instruction that cannot work. Naming the running binary gives
 // one that works wherever Homebrew put it.
 func sudoCommand(args ...string) string {
+	return "sudo " + selfCommand(args...)
+}
+
+// selfCommand renders a command for this binary without sudo. A reader who
+// runs the worker as their own user can paste it as is.
+func selfCommand(args ...string) string {
 	name := selfPath()
 	if name == "" {
 		// Without a path there is nothing better to offer than the bare name,
 		// so keep the instruction rather than drop it.
-		return "sudo ens " + strings.Join(args, " ")
+		return "ens " + strings.Join(args, " ")
 	}
-	return "sudo " + name + " " + strings.Join(args, " ")
+	return name + " " + strings.Join(args, " ")
 }
 
 // selfPath returns the absolute path of the running binary, or an empty string

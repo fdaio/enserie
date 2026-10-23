@@ -104,11 +104,11 @@ func printStatus(out io.Writer, inst instance) error {
 	// A reader who is also the operator can stop the instance with the binary
 	// they already have. One reading somebody else's instance cannot, because
 	// the path names this process rather than the one running.
-	stop := fmt.Sprintf("%s stops it.", sudoCommand("down"))
+	stop := selfCommand("down")
 	if inst.level != "this user" {
-		stop = fmt.Sprintf("%s stops it.", sudoCommand("down"))
+		stop = sudoCommand("down")
 	}
-	fmt.Fprintf(out, "\n%s\n", stop)
+	fmt.Fprintf(out, "\n%s stops it.\n", stop)
 	return nil
 }
 

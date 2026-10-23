@@ -1,6 +1,6 @@
 # enserie protocol
 
-How two `ens` nodes find each other, trust each other, and carry IPv4 packets.
+How two `ens` nodes find each other, trust each other, and carry traffic.
 This describes what the code does today, including the parts that are known to
 be rough.
 
@@ -10,9 +10,31 @@ One node **offers** and one **accepts**. The offering node listens and never
 dials; the accepting node dials. `overlay.Node` enforces this: with
 `Config.Invite` set, the dial loop returns immediately.
 
-The reason is in `overlay/hub.go`. Two relay dials that arrive together pick
+The reason is in `relay/hub.go`. Two relay dials that arrive together pick
 opposite splices, and each side then closes the connection the other one is
 using. Only one dialer avoids that.
+
+## Modes
+
+A token carries a `mode` field. An empty mode means `tun`, so tokens made
+before this field existed still work.
+
+**TUN mode** (`mode: "tun"`) is the original data plane. Each node opens a TUN
+interface, and the peer connection carries IPv4 packets as frames. It needs
+root or `CAP_NET_ADMIN`.
+
+**Proxy mode** (`mode: "proxy"`) needs no TUN and no privileges. After the
+hello, both sides wrap the peer connection in a yamux session. Each node runs a
+local SOCKS5 listener. A SOCKS5 `CONNECT` opens a yamux stream, writes the
+target as a two-byte length and a `host:port` string, and waits for one status
+byte. The peer dials the target, returns a SOCKS5 reply code, and then the two
+sides copy bytes in both directions. A target that names the peer's own overlay
+address is mapped to `127.0.0.1` on the peer, because proxy mode has no TUN to
+route that address.
+
+The invite side is the yamux server and the accepting side is the yamux client,
+but yamux lets either side open streams, so both nodes can serve SOCKS5. Proxy
+mode carries TCP only; `UDP ASSOCIATE`, `BIND`, and ICMP are not implemented.
 
 ## Pairing
 
@@ -32,11 +54,12 @@ ens invite
 
 ### The token
 
-`overlay.Invite`, base64 of JSON, seven fields:
+`overlay.Invite`, base64 of JSON, nine fields:
 
 | field | meaning |
 |---|---|
 | `v` | format version, currently `1` |
+| `mode` | `tun` or `proxy`; an empty mode means `tun` |
 | `exp` | expiry, Unix seconds |
 | `id` | the offering node id |
 | `fp` | SHA-256 fingerprint of the offering node certificate, hex |
@@ -47,7 +70,8 @@ ens invite
 
 The token is **base64, not encryption**. Anyone who reads it holds the secret
 and can impersonate the accepting node, so treat it like a password. See
-[SECURITY.md](SECURITY.md) for what it does not yet do, such as expiry.
+[SECURITY.md](SECURITY.md) for the limits, including replay inside the expiry
+window.
 
 ### What each side checks
 
@@ -150,6 +174,9 @@ the current single `peerConn` cannot express.
 
 ## The data plane
 
+The frame format below is TUN mode. Proxy mode uses yamux after the hello; see
+[Modes](#modes).
+
 An IP packet becomes one frame: a type byte, a length-prefixed JSON-free body.
 `typePacket` carries a packet, `typeHello` carries the node id and the secret.
 The cap is 64 KiB.
@@ -157,13 +184,28 @@ The cap is 64 KiB.
 The interface MTU is fixed at 1280 so that a packet fits inside the smallest
 plausible underlay MTU without fragmenting.
 
+### Proxy streams
+
+Proxy mode does not carry IP packets. The two nodes run a yamux session over
+the authenticated byte stream, and each SOCKS5 connection is one yamux stream.
+The stream starts with a two-byte big-endian target length and the target as
+`host:port`. The peer answers with one reply byte. A zero byte means the peer
+connected; other values are SOCKS5 reply codes. Bytes after the reply flow in
+both directions until one side closes. `yamux.Stream.Close` is a half-close, so a
+protocol that answers after its request is done still delivers the answer.
+
+The peer resolves the target with its own DNS and connects from its own network
+position. The only target rewrite is the peer's own overlay address, which maps
+to `127.0.0.1`.
+
 ### Streams, not datagrams
 
-Overlay packets travel in a single ordered QUIC stream. `transport.ListenQUIC`
-accepts with `AcceptStream` and `transport.DialQUIC` opens with
-`OpenStreamSync`, so both directions end up on one stream per connection. One
-lost segment holds up everything behind it, and the inner IP layer and QUIC both
-run congestion control. QUIC datagrams would remove both effects.
+In TUN mode, overlay packets travel in a single ordered QUIC stream.
+`transport.ListenQUIC` accepts with `AcceptStream` and `transport.DialQUIC`
+opens with `OpenStreamSync`, so both directions end up on one stream per
+connection. One lost segment holds up everything behind it, and the inner IP
+layer and QUIC both run congestion control. QUIC datagrams would remove both
+effects.
 
 ## Trust boundaries
 
@@ -173,6 +215,7 @@ run congestion control. QUIC datagrams would remove both effects.
 | the relay | it copies bytes without reading them | it cannot see packet contents, but it sees connection metadata and can drop or delay |
 | the token reader | nothing | the secret, so they can impersonate the accepting node |
 | a network observer | nothing | packets are inside TLS 1.3, but sizes and timing are visible |
+| a local SOCKS client | the peer's TCP reachability | it shares the listener with every local process |
 
 There is no account, no control plane, and no key distribution. The token is
 the whole thing, and both sides are online at the same moment.
@@ -183,6 +226,11 @@ the whole thing, and both sides are online at the same moment.
   paired yet.
 - Certificates are neither rotated nor revocable.
 - Only IPv4, and only a `/30` for two addresses.
+- Proxy mode carries TCP only. `UDP ASSOCIATE`, `BIND`, and ICMP are not
+  implemented.
+- The SOCKS5 listener has no authentication and binds loopback by default.
+- Proxy mode has no target allow list. The peer can reach anything its host can
+  reach.
 - `overlay.Node` holds exactly one peer. Multi-peer needs a peer set, and
   `Config.Peer`, `Path()` and `peerConn` are all singular today.
 - No STUN, no simultaneous hole punching, no relay-to-direct migration.

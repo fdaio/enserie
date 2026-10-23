@@ -114,8 +114,10 @@ ip -n "$NS_Z" link set "$LINK_Z" up
 ip netns exec "$NS_A" ping -c1 -W2 "$V4_Z" >/dev/null && echo "veth path works between the namespaces"
 
 log "node A invites${SUBNET:+ from ${SUBNET}}"
-invite_args=()
-[ -n "$SUBNET" ] && invite_args=(--subnet "$SUBNET")
+# The default mode is the zero-privilege proxy. This check is about the TUN
+# data plane, so select it explicitly.
+invite_args=(--tun)
+[ -n "$SUBNET" ] && invite_args+=(--subnet "$SUBNET")
 node "$NS_A" "$RUN_DIR/a" "$RUN_DIR/ens" invite "${invite_args[@]}" \
   >"$RUN_DIR/invite.out" 2>"$RUN_DIR/invite.err" &
 for _ in $(seq 1 100); do
@@ -123,10 +125,10 @@ for _ in $(seq 1 100); do
   sleep 0.2
 done
 sed 's/^/  /' "$RUN_DIR/invite.err"
-# The invite line names the binary by absolute path, because that is the only
-# form of "sudo ens" a Homebrew install can run. Match the token after the
-# subcommand rather than after a fixed prefix.
-token=$(sed -n 's/^sudo .*ens accept //p' "$RUN_DIR/invite.out" | head -1)
+# The invite line names the binary by absolute path in TUN mode, because that
+# is the only form of "sudo ens" a Homebrew install can run. Proxy mode prints
+# a plain "ens accept". Match the token after either prefix.
+token=$(sed -n -e 's/^sudo .*ens accept //p' -e 's/^ens accept //p' "$RUN_DIR/invite.out" | head -1)
 [ -n "$token" ] || { echo "no invite token appeared" >&2; exit 1; }
 overlay_a=$(sed -n 's/.*overlay \([0-9.]*\).*/\1/p' "$RUN_DIR/invite.err" | head -1)
 

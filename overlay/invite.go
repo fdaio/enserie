@@ -14,6 +14,13 @@ import (
 
 const inviteVersion = 1
 
+const (
+	// ModeTun is the transparent TUN mode. It needs root or CAP_NET_ADMIN.
+	ModeTun = "tun"
+	// ModeProxy is the zero-privilege SOCKS5 mode.
+	ModeProxy = "proxy"
+)
+
 // DefaultRelayURLs are tyd's hosted splices. The protocol matches tyd.
 func DefaultRelayURLs() []string {
 	return []string{
@@ -26,6 +33,8 @@ func DefaultRelayURLs() []string {
 type Invite struct {
 	// V is the token format version. Encode fills it when it is empty.
 	V int `json:"v"`
+	// Mode is ModeTun or ModeProxy. An empty mode means ModeTun.
+	Mode string `json:"mode,omitempty"`
 	// Exp is when the token stops being valid, in Unix seconds. Encode fills
 	// it with now plus InviteTTL when it is empty, so a token does not stay
 	// usable long after the operator stopped waiting for the second machine.
@@ -81,6 +90,13 @@ func ParseInvite(token string) (Invite, error) {
 	}
 	if inv.V != inviteVersion {
 		return Invite{}, fmt.Errorf("invite version %d is not supported", inv.V)
+	}
+	switch inv.Mode {
+	case "":
+		inv.Mode = ModeTun
+	case ModeTun, ModeProxy:
+	default:
+		return Invite{}, fmt.Errorf("invite mode %q is not supported", inv.Mode)
 	}
 	if inv.ID == "" || inv.FP == "" || inv.CIDR == "" || inv.Secret == "" {
 		return Invite{}, fmt.Errorf("invite token is missing fields")

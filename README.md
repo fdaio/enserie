@@ -2,9 +2,13 @@
 
 A2Z overlay network: QUIC first, relay as fallback. The command is `ens`.
 
-Two machines share an IPv4 `/30` and reach each other as if they were on a LAN.
-Direct QUIC is preferred. When NAT blocks it, a blind WebSocket relay splices
-the path. Overlay packets stay inside TLS 1.3.
+Two machines share an IPv4 `/30`. In TUN mode they reach each other as if they
+were on a LAN. In the default proxy mode they reach each other's TCP services
+through a local SOCKS5 listener. Direct QUIC is preferred. When NAT blocks it, a
+blind WebSocket relay splices the path. Traffic stays inside TLS 1.3.
+
+By default `ens` runs a local SOCKS5 proxy and needs no root. `ens invite --tun`
+adds a transparent TUN interface and needs root or `CAP_NET_ADMIN`.
 
 `docs/protocol.md` describes the pairing, the token, both paths, and the trust
 boundaries. `SECURITY.md` describes what the token does and does not protect.
@@ -14,6 +18,9 @@ boundaries. `SECURITY.md` describes what the token does and does not protect.
 The snippets below install v0.2.18; background `ens invite` needs v0.2.6 or
 later. Every package installs the client only; the relay is separate, and you
 need it only if you run your own splice.
+
+Proxy mode is new. The v0.2.18 packages still default to TUN; build from
+`main` to use the zero-privilege mode until the next release.
 
 With Homebrew, on macOS or Linux, on Apple Silicon or Intel:
 
@@ -63,22 +70,52 @@ you did not download, and the exit code stays 0 as long as every file that is
 present matches. Homebrew checks the checksum for you. On macOS, use
 `shasum -a 256` in place of `sha256sum`.
 
-Running the overlay needs root (`CAP_NET_ADMIN`). Relay traffic uses tyd's
-hosted splices (`relay-1.getfda.dev`, `relay-2.getfda.dev`).
+Proxy mode runs as your user and needs no root. TUN mode (`--tun`) needs root or
+`CAP_NET_ADMIN`. Relay traffic uses tyd's hosted splices (`relay-1.getfda.dev`,
+`relay-2.getfda.dev`).
 
 ## Commands
 
-On machine A:
+The default mode is a local SOCKS5 proxy. It needs no root and carries TCP
+through the peer. On machine A:
 
 ```bash
-sudo ens invite
+ens invite
 ```
 
-By default the link comes from `198.18.0.0/15`, the range RFC 2544 reserves for
+The command prints a SOCKS5 address (default `127.0.0.1:1080`) and a token.
+On machine Z, paste the token:
+
+```bash
+ens accept <token>
+```
+
+Both machines print the SOCKS5 address. Use it with any client that speaks
+SOCKS5, for example:
+
+```bash
+curl --socks5-hostname 127.0.0.1:1080 http://<peer-overlay-ip>:8080/
+ssh -o ProxyCommand='nc -X 5 -x 127.0.0.1:1080 %h %p' user@<peer-overlay-ip>
+```
+
+A target that names the peer's overlay IP is mapped to loopback on the peer, so
+`<peer-overlay-ip>:8080` reaches a service on the peer's `127.0.0.1:8080`.
+Other targets are dialed from the peer as given. The proxy carries TCP only;
+UDP and ICMP are not implemented.
+
+`--socks-listen` changes the local address. Keep it on loopback unless you
+trust every host that can reach the port:
+
+```bash
+ens invite --socks-listen 127.0.0.1:1081
+ens accept --socks-listen 127.0.0.1:1082 <token>
+```
+
+The link still comes from `198.18.0.0/15`, the range RFC 2544 reserves for
 benchmarks. Pass `--subnet` to choose another range:
 
 ```bash
-sudo ens invite --subnet 10.99.0.0/24
+ens invite --subnet 10.99.0.0/24
 ```
 
 The other machine dials the addresses in the token, in order, and each miss
@@ -90,25 +127,20 @@ VPN. Nothing is dropped, so two machines on one LAN still pair directly.
 When you know which address the peer can reach, name it. It is tried first:
 
 ```bash
-sudo ens invite --advertise 203.0.113.7
-sudo ens invite --advertise home.example.com
+ens invite --advertise 203.0.113.7
+ens invite --advertise home.example.com
 ```
 
 That is the fix for a host whose only reachable address is a port mapping or a
 name the other side can resolve.
 
-It prints a one-line command. On machine Z, paste it:
+The two hosts exchange identities and connect. QUIC is tried first. Relay is
+automatic when QUIC cannot complete.
 
-```bash
-sudo ens accept <token>
-```
-
-The two hosts pick a `/30`, exchange identities, and connect. QUIC is tried
-first. Relay is automatic when QUIC cannot complete.
-
-After the first path is up, the parent prints a pid and returns the shell.
-The worker keeps the TUN. `sudo ens down` stops it. Later path logs go to
-`/run/ens.log`, or `/var/run/ens.log` on macOS, which has no `/run`.
+After the first path is up, the parent prints a pid and returns the shell. The
+worker keeps the SOCKS5 listener. `ens down` stops it. In proxy mode the log is
+`$TMPDIR/ens.log`; on Linux that is usually `/tmp/ens.log`, and on macOS it is
+under the per-user temporary directory.
 
 `ens status` reports what is running and shows the tail of that log. It reads
 the lock and the log rather than asking the worker, so it works without root
@@ -116,19 +148,37 @@ even when the worker runs as root:
 
 ```console
 $ ens status
-  state:   running (pid 16467, as root)
-  log:     /run/ens.log
+  state:   running (pid 16467, as this user)
+  log:     /tmp/ens.log
 
-  ens: tun enserie0 overlay 198.19.152.177
-  ens: connected via quic
-
-sudo /opt/homebrew/bin/ens down stops it.
+/tmp/ens down stops it.
 ```
 
+The startup lines with the SOCKS5 address and the first path stay on the
+terminal. Later path changes and proxy errors go to the log.
+
 It exits 1 and prints `ens: not running` when no worker is up, so a script can
-ask without parsing the output. The connection path and the overlay addresses
-are not in the output because the worker keeps them in memory and does not
-write them anywhere.
+ask without parsing the output. The fields come from the lock file and the log,
+so `ens status` does not need to talk to the worker.
+
+### TUN mode
+
+Use `--tun` when an application cannot be pointed at a SOCKS5 proxy and you
+need transparent IP. It opens a TUN interface, so it needs root or
+`CAP_NET_ADMIN`:
+
+```bash
+sudo ens invite --tun
+sudo ens accept <token>
+```
+
+The accept side reads the mode from the token, so the command it prints is
+`sudo ens accept <token>`. After the path is up, `ping` the overlay IP printed
+on the other side. The worker keeps the TUN. `sudo ens down` stops it. The log
+is `/run/ens.log`, or `/var/run/ens.log` on macOS.
+
+The `ens status` example above is proxy mode. A root TUN worker is reported as
+`as root` and the stop command starts with `sudo`.
 
 Installing a new version does not change a running one. A package manager
 replaces the file on disk, and the running worker keeps the code it started
@@ -137,15 +187,16 @@ down` reports that a pid ignored SIGTERM, or the overlay will not come up after
 an upgrade, force the old process out:
 
 ```bash
-sudo pkill -f 'ens (invite|accept)'
-sudo ip link delete enserie0   # only if a TUN is left behind
+pkill -f 'ens (invite|accept)'          # proxy mode
+sudo pkill -f 'ens (invite|accept)'     # TUN mode
+sudo ip link delete enserie0            # only if a TUN is left behind
 ```
 
-Then `sudo ens invite` starts on the new binary.
-
-When the path is up, `ping` the overlay IP printed on the other side.
+Then start the new binary again.
 
 ### When a VPN takes the range
+
+This applies to TUN mode. Proxy mode has no TUN route.
 
 A VPN can route the overlay away from the TUN, and the symptom is quiet: the
 path comes up, `ens` reports `connected via quic` or `connected via relay`, and
@@ -158,6 +209,13 @@ must name the TUN, such as `enserie0`, and not a tunnel. Passing `--subnet` with
 a range the VPN does not claim is the way out.
 
 ### Known limits
+
+Proxy mode carries TCP streams, not IP packets. UDP ASSOCIATE and ICMP are not
+implemented, so DNS over UDP, `ping`, and applications that need raw IP do not
+work through the proxy. The SOCKS5 listener has no authentication and binds
+loopback by default; any local process can use it.
+
+TUN mode has the following limits.
 
 Overlay packets travel in an ordered QUIC stream, not in datagrams. One lost
 segment therefore holds up the packets behind it, and the inner IP layer and
@@ -175,14 +233,21 @@ migrating to a second one.
 
 ## Use as a library
 
-Three packages, one job each. `overlay` runs the node, `transport` carries QUIC
-and certificates, `relay` serves a splice of your own. `go get` on its own
+Four packages, one job each. `overlay` runs the node, `proxy` turns a peer
+connection into a SOCKS5 listener, `transport` carries QUIC and certificates,
+`relay` serves a splice of your own. `go get` on its own
 starts nothing: your program owns the process, the certificates, and the
 pairing, so it does the work that `ens` does around the node.
 
+Set `overlay.Config.OnPeer` to receive the authenticated peer connection
+instead of opening a TUN. `proxy.Server` wraps that connection in yamux and
+serves SOCKS5. `cmd/ens/main.go` shows the wiring for both modes.
+
 ```bash
-go get github.com/fdaio/enserie@v0.2.18
+go get github.com/fdaio/enserie@main
 ```
+
+The proxy API is on `main`; the v0.2.18 module does not include it.
 
 ### Pairing
 

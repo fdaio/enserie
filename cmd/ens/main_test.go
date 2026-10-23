@@ -31,7 +31,7 @@ func TestInviteCLITokenIsShellSafe(t *testing.T) {
 }
 
 func TestWrapStartOmitsNeedRootWhenRoot(t *testing.T) {
-	err := wrapStart(fmt.Errorf("TUNSETIFF: device or resource busy"))
+	err := wrapStart(fmt.Errorf("TUNSETIFF: device or resource busy"), overlay.ModeTun)
 	s := err.Error()
 	if os.Geteuid() == 0 && strings.Contains(s, "need root") {
 		t.Fatalf("root must not see need root: %s", s)
@@ -68,11 +68,32 @@ func TestEphemeralCertLeavesNothingBehind(t *testing.T) {
 	}
 }
 
+// Proxy mode runs as the reader's own user, so the peer must not be told to
+// use sudo.
+func TestAcceptCommandProxyNeedsNoSudo(t *testing.T) {
+	got := acceptCommand("TOKEN", overlay.ModeProxy)
+	if got != "ens accept TOKEN" {
+		t.Fatalf("acceptCommand = %q, want %q", got, "ens accept TOKEN")
+	}
+}
+
+// A proxy start failure must not send the reader after root. The usual cause
+// is a busy port or a bad relay, not a TUN permission.
+func TestWrapStartProxyOmitsNeedRoot(t *testing.T) {
+	err := wrapStart(fmt.Errorf("socks listen 127.0.0.1:1080: address already in use"), overlay.ModeProxy)
+	if strings.Contains(err.Error(), "need root") || strings.Contains(err.Error(), "sudo") {
+		t.Fatalf("proxy error mentions root: %s", err)
+	}
+	if !strings.Contains(err.Error(), "address already in use") {
+		t.Fatalf("proxy error lost the cause: %s", err)
+	}
+}
+
 // The command the peer runs must not name a path. The peer may have installed
 // with a different package manager, at a different prefix, or not at all, and
 // this machine's path is wrong on every one of those.
 func TestAcceptCommandNamesNoPath(t *testing.T) {
-	got := acceptCommand("TOKEN")
+	got := acceptCommand("TOKEN", overlay.ModeTun)
 	if got != "sudo ens accept TOKEN" {
 		t.Fatalf("acceptCommand = %q, want %q", got, "sudo ens accept TOKEN")
 	}

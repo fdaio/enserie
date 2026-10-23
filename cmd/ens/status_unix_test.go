@@ -173,7 +173,10 @@ func TestRunStatusNamesTheStopCommand(t *testing.T) {
 	if err := runStatus(&out); err != nil {
 		t.Fatalf("runStatus: %v", err)
 	}
-	if !strings.Contains(out.String(), sudoCommand("down")) {
-		t.Fatalf("status = %q, want it to name %q", out.String(), sudoCommand("down"))
+	if !strings.Contains(out.String(), selfCommand("down")) {
+		t.Fatalf("status = %q, want it to name %q", out.String(), selfCommand("down"))
+	}
+	if strings.Contains(out.String(), "sudo ") {
+		t.Fatalf("status = %q, want no sudo for this user's worker", out.String())
 	}
 }

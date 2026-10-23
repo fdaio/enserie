@@ -1,8 +1,9 @@
 // Package overlay runs one end of a two-node overlay link.
 //
 // Two nodes take the two addresses of an IPv4 /30 and reach each other as if
-// they were on a LAN. New checks the pairing. Start opens the TUN, listens,
-// offers to the relays, and dials the peer. Close stops the node.
+// they were on a LAN. New checks the pairing. Start opens the TUN unless
+// Config.OnPeer is set, listens, offers to the relays, and dials the peer.
+// Close stops the node.
 //
 // A program pairs the two nodes itself. The token in this package is the same
 // token that `ens invite` prints.
@@ -57,6 +58,10 @@ type Config struct {
 	Peer Peer
 	// Device is the packet source and sink. Nil opens a real TUN.
 	Device Device
+	// OnPeer receives the authenticated peer connection instead of the TUN
+	// packet loop. Start does not open a TUN when OnPeer is set. The callback
+	// must return when the connection ends.
+	OnPeer func(ctx context.Context, c net.Conn, kind transport.Kind) error
 	// Secret is the shared invite secret; empty skips the check.
 	Secret string
 	// Invite listens and offers. It does not dial. The first hello with
@@ -88,6 +93,9 @@ func New(cfg Config) (*Node, error) {
 	}
 	if cfg.Invite && cfg.AlwaysDial {
 		return nil, fmt.Errorf("invite node does not dial")
+	}
+	if cfg.OnPeer != nil && cfg.Device != nil {
+		return nil, fmt.Errorf("OnPeer and Device are mutually exclusive")
 	}
 	if !cfg.Invite {
 		if cfg.Peer.ID == "" || cfg.Peer.ID == cfg.ID {
@@ -155,21 +163,24 @@ func (n *Node) ListenAddr() string {
 
 // Start opens the device and the QUIC listener, offers to the relays, and then
 // moves packets between the device and the peer. It needs root or CAP_NET_ADMIN
-// unless Config.Device is set, and it returns as soon as the node runs.
+// unless Config.Device or Config.OnPeer is set, and it returns as soon as the
+// node runs.
 func (n *Node) Start(ctx context.Context) error {
 	ctx, n.cancel = context.WithCancel(ctx)
-	if n.cfg.Device != nil {
-		n.dev = n.cfg.Device
-	} else {
-		dev, err := openTUN("")
-		if err != nil {
-			return err
+	if n.cfg.OnPeer == nil {
+		if n.cfg.Device != nil {
+			n.dev = n.cfg.Device
+		} else {
+			dev, err := openTUN("")
+			if err != nil {
+				return err
+			}
+			if err := configureTUN(dev.Name(), n.local, n.cfg.Peer.IP, n.prefix.Mask); err != nil {
+				_ = dev.Close()
+				return err
+			}
+			n.dev = dev
 		}
-		if err := configureTUN(dev.Name(), n.local, n.cfg.Peer.IP, n.prefix.Mask); err != nil {
-			_ = dev.Close()
-			return err
-		}
-		n.dev = dev
 	}
 
 	ln, _, err := transport.ListenQUIC(n.cfg.Listen, n.cfg.Cert, n.allowFP)
@@ -206,11 +217,13 @@ func (n *Node) Start(ctx context.Context) error {
 		defer n.wg.Done()
 		n.dialLoop(ctx)
 	}()
-	n.wg.Add(1)
-	go func() {
-		defer n.wg.Done()
-		n.tunLoop(ctx)
-	}()
+	if n.dev != nil {
+		n.wg.Add(1)
+		go func() {
+			defer n.wg.Done()
+			n.tunLoop(ctx)
+		}()
+	}
 	return nil
 }
 
@@ -272,6 +285,9 @@ func (n *Node) cleanupDev() error {
 // that field without a nil check, so it has to stay valid until the callers
 // decide the node is finished with it.
 func (n *Node) closeDev() error {
+	if n.dev == nil {
+		return nil
+	}
 	name := n.dev.Name()
 	err := n.dev.Close()
 	removeLinuxTUNFirewall(name)
@@ -476,6 +492,12 @@ func (n *Node) serveConn(ctx context.Context, c net.Conn, kind transport.Kind) {
 	n.markPaired()
 	n.logf("path %s", kind)
 	defer n.clearPeer(c)
+	if n.cfg.OnPeer != nil {
+		if err := n.cfg.OnPeer(ctx, c, kind); err != nil && ctx.Err() == nil {
+			n.logf("peer session: %v", err)
+		}
+		return
+	}
 	for {
 		if ctx.Err() != nil {
 			return

@@ -29,8 +29,50 @@ func TestInviteTokenRoundTrip(t *testing.T) {
 	if got.ID != inv.ID || got.FP != inv.FP || got.CIDR != inv.CIDR || got.Secret != inv.Secret {
 		t.Fatalf("round trip %#v", got)
 	}
+	if got.Mode != ModeTun {
+		t.Fatalf("mode = %q, want %q for a token without a mode", got.Mode, ModeTun)
+	}
 	if len(got.Relays) != 2 {
 		t.Fatalf("relays %v", got.Relays)
+	}
+}
+
+func TestInviteModeRoundTrip(t *testing.T) {
+	inv := Invite{
+		V:      1,
+		Mode:   ModeProxy,
+		ID:     "abc",
+		FP:     "deadbeef",
+		CIDR:   "10.7.0.1/30",
+		Secret: "s3cret",
+	}
+	tok, err := inv.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := ParseInvite(tok)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Mode != ModeProxy {
+		t.Fatalf("mode = %q, want %q", got.Mode, ModeProxy)
+	}
+}
+
+func TestInviteRejectsUnknownMode(t *testing.T) {
+	tok, err := Invite{
+		V:      1,
+		Mode:   "carrier-pigeon",
+		ID:     "abc",
+		FP:     "deadbeef",
+		CIDR:   "10.7.0.1/30",
+		Secret: "s3cret",
+	}.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ParseInvite(tok); err == nil {
+		t.Fatal("accepted an unknown mode")
 	}
 }
 

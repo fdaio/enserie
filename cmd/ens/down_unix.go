@@ -36,7 +36,7 @@ func runDown() error {
 			// nothing. An instance that ignores SIGTERM is stuck rather than
 			// working, and it keeps the lock, so the next ens invite fails
 			// with "ens already running" while this command said it stopped.
-			return fmt.Errorf("ens: pid %d ignored SIGTERM and is still running after %s; stop it with: sudo kill -9 %d", pid, stopGraceForTest, pid)
+			return fmt.Errorf("ens: pid %d ignored SIGTERM and is still running after %s; stop it with: kill -9 %d", pid, stopGraceForTest, pid)
 		}
 		fmt.Fprintf(os.Stderr, "ens: stopped pid %d\n", pid)
 		return nil

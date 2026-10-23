@@ -2,6 +2,8 @@ package overlay
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"path/filepath"
@@ -78,6 +80,124 @@ func TestOverlayInviteAcceptRelay(t *testing.T) {
 	defer z.Close()
 	waitPath(t, a, z, transport.KindRelay)
 	sendAndRecv(t, a, z)
+}
+
+// OnPeer replaces the TUN packet loop, so Start must not open a device and the
+// callback must receive the authenticated byte stream.
+func TestOnPeerSkipsTUNAndCarriesBytes(t *testing.T) {
+	exchanged := make(chan struct{}, 2)
+	release := make(chan struct{})
+	errCh := make(chan error, 2)
+	handler := func(id string) func(context.Context, net.Conn, transport.Kind) error {
+		return func(_ context.Context, c net.Conn, kind transport.Kind) error {
+			if kind != transport.KindQUIC {
+				errCh <- fmt.Errorf("kind = %q, want quic", kind)
+				exchanged <- struct{}{}
+				return nil
+			}
+			if _, err := c.Write([]byte(id)); err != nil {
+				errCh <- err
+				exchanged <- struct{}{}
+				return nil
+			}
+			var b [1]byte
+			if _, err := io.ReadFull(c, b[:]); err != nil {
+				errCh <- err
+				exchanged <- struct{}{}
+				return nil
+			}
+			if string(b[:]) == id {
+				errCh <- fmt.Errorf("peer echoed our own id %q", id)
+				exchanged <- struct{}{}
+				return nil
+			}
+			exchanged <- struct{}{}
+			<-release
+			return nil
+		}
+	}
+
+	a, z := pairOnPeer(t, handler("a"), handler("z"))
+	defer a.Close()
+	defer z.Close()
+	waitPath(t, a, z, transport.KindQUIC)
+
+	for range 2 {
+		select {
+		case <-exchanged:
+		case <-time.After(10 * time.Second):
+			t.Fatal("the peer callbacks did not exchange bytes")
+		}
+	}
+	close(release)
+	close(errCh)
+	for err := range errCh {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if a.DeviceName() != "" || z.DeviceName() != "" {
+		t.Fatalf("proxy nodes opened a device: %q %q", a.DeviceName(), z.DeviceName())
+	}
+}
+
+func pairOnPeer(t *testing.T, aHandler, zHandler func(context.Context, net.Conn, transport.Kind) error) (*Node, *Node) {
+	t.Helper()
+	dir := t.TempDir()
+	ca, err := transport.EnsureServerCert(filepath.Join(dir, "a.crt"), filepath.Join(dir, "a.key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cz, err := transport.EnsureServerCert(filepath.Join(dir, "z.crt"), filepath.Join(dir, "z.key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fpA, err := transport.CertFingerprint(ca)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fpZ, err := transport.CertFingerprint(cz)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	a, err := New(Config{
+		ID:     "a",
+		CIDR:   "10.7.0.1/30",
+		Cert:   ca,
+		Listen: "127.0.0.1:0",
+		Peer:   Peer{ID: "z", IP: net.ParseIP("10.7.0.2"), CertFP: fpZ},
+		Secret: "invite-secret",
+		Invite: true,
+		OnPeer: aHandler,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	z, err := New(Config{
+		ID:     "z",
+		CIDR:   "10.7.0.2/30",
+		Cert:   cz,
+		Listen: "127.0.0.1:0",
+		Peer: Peer{
+			ID:         "a",
+			IP:         net.ParseIP("10.7.0.1"),
+			CertFP:     fpA,
+			Candidates: []string{a.ListenAddr()},
+		},
+		Secret: "invite-secret",
+		OnPeer: zHandler,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := z.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	return a, z
 }
 
 func invitePair(t *testing.T, forceRelay bool) (*Node, *Node) {

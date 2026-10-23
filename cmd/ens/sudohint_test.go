@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/fdaio/enserie/overlay"
 )
 
 // A reader who is told only "sudo ens" still types a command that a Homebrew
@@ -26,6 +28,21 @@ func TestSudoCommandNamesTheBinary(t *testing.T) {
 	}
 	if strings.Contains(got, "sudo ens ") {
 		t.Fatalf("hint still uses the bare name: %q", got)
+	}
+}
+
+// A worker that runs as the reader's own user needs no sudo, so the hint
+// must name the binary without it.
+func TestSelfCommandNamesTheBinaryWithoutSudo(t *testing.T) {
+	got := selfCommand("down")
+	if strings.HasPrefix(got, "sudo ") {
+		t.Fatalf("selfCommand starts with sudo: %q", got)
+	}
+	if !strings.HasSuffix(got, " down") {
+		t.Fatalf("selfCommand does not name the subcommand: %q", got)
+	}
+	if !strings.Contains(got, "ens") {
+		t.Fatalf("selfCommand does not name the binary: %q", got)
 	}
 }
 
@@ -90,7 +107,7 @@ func TestSudoCommandResolvesBareName(t *testing.T) {
 }
 
 func TestWrapStartNamesTheCommandWhenNotRoot(t *testing.T) {
-	err := wrapStart(fmt.Errorf("TUNSETIFF enserie0: operation not permitted"))
+	err := wrapStart(fmt.Errorf("TUNSETIFF enserie0: operation not permitted"), overlay.ModeTun)
 	s := err.Error()
 	if !strings.Contains(s, "need root") {
 		t.Fatalf("error lost the need root note: %s", s)
@@ -117,7 +134,7 @@ func TestWrapStartNamesTheCommandWhenNotRoot(t *testing.T) {
 // so a hint with a newline loses every line after the first. The reader then
 // sees the bare "need root" again, with no command to copy.
 func TestWrapStartErrorStaysOnOneLine(t *testing.T) {
-	err := wrapStart(fmt.Errorf("TUNSETIFF enserie0: operation not permitted"))
+	err := wrapStart(fmt.Errorf("TUNSETIFF enserie0: operation not permitted"), overlay.ModeTun)
 	if strings.ContainsAny(err.Error(), "\n") {
 		t.Fatalf("error spans several lines, so the pipe keeps only the first: %q", err.Error())
 	}
@@ -131,7 +148,7 @@ func TestSudoHintsStayOnOneLine(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, err := range []error{
-		wrapStart(fmt.Errorf("TUNSETIFF enserie0: operation not permitted")),
+		wrapStart(fmt.Errorf("TUNSETIFF enserie0: operation not permitted"), overlay.ModeTun),
 		downError(errNotRunning, other),
 	} {
 		if err == nil {

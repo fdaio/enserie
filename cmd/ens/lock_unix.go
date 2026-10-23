@@ -88,7 +88,9 @@ func acquireInstanceLockAt(path string) (*os.File, error) {
 	}
 	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		_ = f.Close()
-		return nil, fmt.Errorf("ens already running; stop it first with: %s", sudoCommand("down"))
+		// The lock is the reader's own, so the reader can stop the worker
+		// without changing privilege.
+		return nil, fmt.Errorf("ens already running; stop it first with: %s", selfCommand("down"))
 	}
 	if err := writeLockPID(f, os.Getpid()); err != nil {
 		_ = f.Close()

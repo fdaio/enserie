@@ -54,6 +54,7 @@ make_bad_release() {
   printf '%064d  %s\n' 0 "$asset" >"$dir/SHA256SUMS"
 }
 
+echo "== prepare a fake release"
 mkdir -p "$TMP/work"
 cat >"$TMP/work/ens" <<'EOF'
 #!/bin/sh
@@ -66,15 +67,21 @@ make_release "$TMP/release/latest/download"
 make_release "$TMP/release/download/v0.3.1"
 make_bad_release "$TMP/release/bad/latest/download"
 
+echo "== start a local HTTP server"
 (cd "$TMP/release" && python3 -u -m http.server 0 --bind 127.0.0.1) >"$TMP/http.log" 2>&1 &
 HTTP_PID=$!
 PORT=
-for _ in $(seq 1 100); do
+for _ in $(seq 1 200); do
   PORT=$(sed -n 's/.*port \([0-9][0-9]*\).*/\1/p' "$TMP/http.log" | head -1)
   [ -n "$PORT" ] && break
   sleep 0.1
 done
-[ -n "$PORT" ] || { cat "$TMP/http.log" >&2; exit 1; }
+if [ -z "$PORT" ]; then
+  echo "the HTTP server did not report a port" >&2
+  cat "$TMP/http.log" >&2
+  exit 1
+fi
+echo "  port $PORT"
 BASE="http://127.0.0.1:$PORT"
 export NO_PROXY="127.0.0.1,localhost"
 export no_proxy="$NO_PROXY"

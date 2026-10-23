@@ -425,11 +425,11 @@ func (n *Node) quicAttempt(addr string) dialAttempt {
 			// cancellation as an unreachable address would name an address that
 			// may well have answered.
 			if ctx.Err() == nil {
-				n.logf("candidate %s unreachable after %s: %v", addr, time.Since(start).Round(time.Millisecond), err)
+				n.logf("direct path %s did not answer after %s: %v", addr, time.Since(start).Round(time.Millisecond), err)
 			}
 			return nil, "", err
 		}
-		n.logf("candidate %s connected after %s", addr, time.Since(start).Round(time.Millisecond))
+		n.logf("direct path %s connected after %s", addr, time.Since(start).Round(time.Millisecond))
 		return c, transport.KindQUIC, nil
 	}
 }
@@ -445,6 +445,9 @@ func (n *Node) quicAttempt(addr string) dialAttempt {
 func (n *Node) relayAttempt(life context.Context, url string) dialAttempt {
 	return func(ctx context.Context) (net.Conn, transport.Kind, error) {
 		start := time.Now()
+		// A relay can take many seconds to answer. Report the attempt before
+		// it blocks.
+		n.logf("relay %s connecting", url)
 		raw, err := relay.Dial(life, url, n.cfg.Peer.ID)
 		if err != nil {
 			if ctx.Err() == nil {
@@ -490,7 +493,6 @@ func (n *Node) serveConn(ctx context.Context, c net.Conn, kind transport.Kind) {
 	// The invite token has now done its one job. A later holder of the same
 	// token must not pair under a different id.
 	n.markPaired()
-	n.logf("path %s", kind)
 	defer n.clearPeer(c)
 	if n.cfg.OnPeer != nil {
 		if err := n.cfg.OnPeer(ctx, c, kind); err != nil && ctx.Err() == nil {

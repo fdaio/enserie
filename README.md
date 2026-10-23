@@ -15,21 +15,40 @@ boundaries. `SECURITY.md` describes what the token does and does not protect.
 
 ## Install
 
-The snippets below install v0.3.0. Every package installs the client only; the
-relay is separate, and you need it only if you run your own splice.
+On macOS or Linux, install the latest release into `~/.local/bin`:
+
+```bash
+curl -fsSL https://github.com/fdaio/enserie/releases/latest/download/install.sh | sh
+```
+
+The installer detects the OS and architecture, verifies the download against
+`SHA256SUMS`, and installs only the `ens` client. It does not need root. If
+`~/.local/bin` is not in `PATH`, it prints the line to add.
+
+To pin a version or use another prefix:
+
+```bash
+curl -fsSL https://github.com/fdaio/enserie/releases/latest/download/install.sh \
+  | sh -s -- --version 0.3.1 --prefix "$HOME/.local"
+```
 
 With Homebrew, on macOS or Linux, on Apple Silicon or Intel:
 
 ```bash
-brew tap fdaio/enserie
 brew install fdaio/enserie/ens
 ```
 
-Without Homebrew, set the version and pick your platform. The download URL is
-the same for every package; only the architecture differs.
+<details>
+<summary>Manual package downloads</summary>
+
+Prefer a native package or want to check a download by hand? The
+[latest release](https://github.com/fdaio/enserie/releases/latest) has `.pkg`
+for macOS, `.deb` for Debian and Ubuntu, `.rpm` for Fedora, RHEL and openSUSE,
+and static tarballs for other Linux distributions. Set the version and
+architecture, then pick the row:
 
 ```bash
-ver=0.3.0
+ver=0.3.1
 rel=https://github.com/fdaio/enserie/releases/download/v${ver}
 arch=arm64   # or amd64 on Intel
 ```
@@ -46,15 +65,11 @@ On Debian and Ubuntu, `dpkg --print-architecture` already prints `amd64` or
 `aarch64`, which is why those rows need it set by hand.
 
 The Linux tarball is statically linked, so it also runs on Alpine and on any
-distribution without a package of its own.
+distribution without a package of its own. Double-clicking the macOS `.pkg`
+installs the same way. There is no Arch package; use the tarball.
 
-Double-clicking the macOS `.pkg` installs the same way.
-
-There is no Arch package. Arch is not Debian-based and the AUR is maintained by
-the community, so the tarball above is the route. Writing a PKGBUILD is one
-small file if you want to add it.
-
-To check a download before running it:
+Every release publishes `SHA256SUMS`. Verify a manual download before running
+it:
 
 ```bash
 curl -fsSLO "$rel/SHA256SUMS"
@@ -65,6 +80,8 @@ Each file you downloaded should report `OK`. `--ignore-missing` skips the assets
 you did not download, and the exit code stays 0 as long as every file that is
 present matches. Homebrew checks the checksum for you. On macOS, use
 `shasum -a 256` in place of `sha256sum`.
+
+</details>
 
 Proxy mode runs as your user and needs no root. TUN mode (`--tun`) needs root or
 `CAP_NET_ADMIN`. Relay traffic uses tyd's hosted splices (`relay-1.getfda.dev`,
@@ -240,7 +257,7 @@ instead of opening a TUN. `proxy.Server` wraps that connection in yamux and
 serves SOCKS5. `cmd/ens/main.go` shows the wiring for both modes.
 
 ```bash
-go get github.com/fdaio/enserie@v0.3.0
+go get github.com/fdaio/enserie@v0.3.1
 ```
 
 ### Pairing
@@ -348,8 +365,8 @@ with the hosted splices when the token omits them.
 ```bash
 make test
 make build
-make dist-linux VERSION=0.3.0
-make dist-darwin VERSION=0.3.0
+make dist-linux VERSION=0.3.1
+make dist-darwin VERSION=0.3.1
 ```
 
 ## License

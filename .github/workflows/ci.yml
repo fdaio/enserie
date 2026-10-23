@@ -34,6 +34,8 @@ jobs:
         run: |
           go build -o "$RUNNER_TEMP/ens" ./cmd/ens
           ENS_BIN="$RUNNER_TEMP/ens" ./scripts/e2e-proxy.sh
+      - name: Install script end to end
+        run: ./scripts/e2e-install.sh
 
   # Packaging only runs on a tag, so a broken packer would otherwise be found
   # by whoever waits for a release. This builds every package and checks that

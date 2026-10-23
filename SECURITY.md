@@ -89,8 +89,10 @@ not own.
   shasum -a 256 -c SHA256SUMS
   ```
 
-  macOS binaries carry an ad-hoc signature, which is not a notarised one and
-  stops being meaningful on any machine other than the one that produced it.
+  The install script verifies `SHA256SUMS` before it extracts the binary. It
+  installs under your home directory and does not use sudo. macOS binaries
+  carry an ad-hoc signature, which is not a notarised one and stops being
+  meaningful on any machine other than the one that produced it.
 - Prefer a relay you operate when the path matters. Point the overlay range
   somewhere no other network claims, which is what `ens invite --subnet` is
   for.

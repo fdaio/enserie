@@ -15,12 +15,8 @@ boundaries. `SECURITY.md` describes what the token does and does not protect.
 
 ## Install
 
-The snippets below install v0.2.18; background `ens invite` needs v0.2.6 or
-later. Every package installs the client only; the relay is separate, and you
-need it only if you run your own splice.
-
-Proxy mode is new. The v0.2.18 packages still default to TUN; build from
-`main` to use the zero-privilege mode until the next release.
+The snippets below install v0.3.0. Every package installs the client only; the
+relay is separate, and you need it only if you run your own splice.
 
 With Homebrew, on macOS or Linux, on Apple Silicon or Intel:
 
@@ -33,7 +29,7 @@ Without Homebrew, set the version and pick your platform. The download URL is
 the same for every package; only the architecture differs.
 
 ```bash
-ver=0.2.18
+ver=0.3.0
 rel=https://github.com/fdaio/enserie/releases/download/v${ver}
 arch=arm64   # or amd64 on Intel
 ```
@@ -244,10 +240,8 @@ instead of opening a TUN. `proxy.Server` wraps that connection in yamux and
 serves SOCKS5. `cmd/ens/main.go` shows the wiring for both modes.
 
 ```bash
-go get github.com/fdaio/enserie@main
+go get github.com/fdaio/enserie@v0.3.0
 ```
-
-The proxy API is on `main`; the v0.2.18 module does not include it.
 
 ### Pairing
 
@@ -354,8 +348,8 @@ with the hosted splices when the token omits them.
 ```bash
 make test
 make build
-make dist-linux VERSION=0.2.18
-make dist-darwin VERSION=0.2.18
+make dist-linux VERSION=0.3.0
+make dist-darwin VERSION=0.3.0
 ```
 
 ## License
